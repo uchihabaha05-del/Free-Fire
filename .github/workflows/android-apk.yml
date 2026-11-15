@@ -23,6 +23,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Validate inline JavaScript
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          for (const file of ['index.html', 'game3d.html']) {
+            const html = readFileSync(file, 'utf8');
+            const scripts = [...html.matchAll(/<script\\b([^>]*)>([\\s\\S]*?)<\\/script>/gi)];
+            let checked = 0;
+            for (const match of scripts) {
+              if (/type\\s*=\\s*["']importmap["']/i.test(match[1])) continue;
+              if (!match[2].trim()) continue;
+              execFileSync(process.execPath, ['--check', '--input-type=module'], {
+                input: match[2],
+                stdio: ['pipe', 'inherit', 'inherit']
+              });
+              checked++;
+            }
+            if (!checked) throw new Error(`No inline JavaScript found in ${file}`);
+            console.log(`${file}: checked ${checked} inline script(s)`);
+          }
+          NODE
       - name: Install dependencies
         run: npm install
       - name: Add Android platform
