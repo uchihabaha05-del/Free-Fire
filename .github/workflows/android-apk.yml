@@ -6,7 +6,9 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'
-      - 'www/**'\n      - 'index.html'\n      - 'game3d.html'
+      - 'www/**'
+      - 'index.html'
+      - 'game3d.html'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 permissions:
