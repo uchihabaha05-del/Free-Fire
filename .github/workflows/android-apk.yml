@@ -6,7 +6,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'
-      - 'www/**'
+      - 'www/**'\n      - 'index.html'\n      - 'game3d.html'
       - '.github/workflows/android-apk.yml'
   workflow_dispatch:
 permissions:
@@ -32,7 +32,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Build debug APK
+      - name: Force landscape orientation\n        run: |\n          python3 - <<'PY'\n          from pathlib import Path\n          import re\n          p = Path('android/app/src/main/AndroidManifest.xml')\n          s = p.read_text()\n          s, n = re.subn(r'(<activity\\b[^>]*android:name="[^"]*MainActivity"[^>]*)(>)', r'\\1 android:screenOrientation="landscape"\\2', s, count=1)\n          if n != 1:\n              raise SystemExit('Could not set MainActivity landscape orientation')\n          p.write_text(s)\n          PY\n      - name: Build debug APK
         run: |
           cd android
           chmod +x gradlew
