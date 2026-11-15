@@ -1,0 +1,17 @@
+{
+  "name": "LASTZONE Battle Arena",
+  "short_name": "LASTZONE",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#101820",
+  "theme_color": "#101820",
+  "description": "Battle arena against bots",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
