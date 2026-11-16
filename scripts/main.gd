@@ -429,6 +429,15 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     actor.scale = Vector3.ONE
     add_child(actor)
     actor.look_at(Vector3(x, _height_approx(x, -float(side) * 12.0), -float(side) * 12.0), Vector3.UP)
+
+    # Play the first imported rig animation when the model provides one.
+    var animation_players := actor.find_children("*", "AnimationPlayer", true, false)
+    for animation_node in animation_players:
+        var animation_player := animation_node as AnimationPlayer
+        var animation_names := animation_player.get_animation_list()
+        if not animation_names.is_empty():
+            animation_player.play(animation_names[0])
+            break
     return actor
 
 func _create_character_placeholder(character_name: String, side: int) -> Node3D:
