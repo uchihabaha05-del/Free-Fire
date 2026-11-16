@@ -68,7 +68,8 @@ func _build_world() -> void:
     sky.sky_material = sky_material
     environment.sky = sky
     environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-    environment.ambient_light_energy = 0.72
+    environment.ambient_light_energy = 0.82
+    environment.reflected_light_source = Environment.REFLECTION_SOURCE_BG
     environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
     environment.tonemap_exposure = 1.0
     environment.fog_enabled = true
@@ -347,6 +348,15 @@ func _create_iron_man() -> void:
     label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
     iron_man.add_child(label)
 
+
+func _organic_material(color: Color, roughness: float) -> StandardMaterial3D:
+    var material := StandardMaterial3D.new()
+    material.albedo_color = color
+    material.metallic = 0.0
+    material.roughness = roughness
+    material.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+    return material
+
 func _hero_material(color: Color, roughness: float, glow: bool = false) -> StandardMaterial3D:
     var material := StandardMaterial3D.new()
     material.albedo_color = color
@@ -435,9 +445,9 @@ func _create_hulk() -> void:
     hulk.rotation.y = PI
     add_child(hulk)
 
-    var skin := _hero_material(Color(0.12, 0.39, 0.12), 0.78)
-    var skin_light := _hero_material(Color(0.20, 0.52, 0.18), 0.72)
-    var skin_dark := _hero_material(Color(0.055, 0.22, 0.07), 0.82)
+    var skin := _organic_material(Color(0.12, 0.39, 0.12), 0.82)
+    var skin_light := _organic_material(Color(0.20, 0.52, 0.18), 0.76)
+    var skin_dark := _organic_material(Color(0.055, 0.22, 0.07), 0.88)
     var pants := _hero_material(Color(0.20, 0.055, 0.29), 0.92)
     var pants_light := _hero_material(Color(0.31, 0.10, 0.39), 0.88)
     var hair := _hero_material(Color(0.055, 0.045, 0.035), 0.94)
@@ -446,6 +456,12 @@ func _create_hulk() -> void:
     # Broad chest, trapezius and abdomen give Hulk a massive silhouette.
     _hulk_part(SphereMesh.new(), Vector3(0, 2.05, 0), Vector3(1.08, 0.86, 0.55), skin)
     _hulk_part(SphereMesh.new(), Vector3(0, 1.62, 0.02), Vector3(0.66, 0.58, 0.43), skin_light)
+    # Layered pectorals, obliques and abdominal definition.
+    _hulk_part(SphereMesh.new(), Vector3(-0.31, 2.13, 0.40), Vector3(0.34, 0.25, 0.15), skin_light)
+    _hulk_part(SphereMesh.new(), Vector3(0.31, 2.13, 0.40), Vector3(0.34, 0.25, 0.15), skin_light)
+    for row in range(3):
+        for side in [-1.0, 1.0]:
+            _hulk_part(SphereMesh.new(), Vector3(side * 0.16, 1.78 - float(row) * 0.17, 0.405), Vector3(0.145, 0.105, 0.075), skin)
     _hulk_part(SphereMesh.new(), Vector3(-0.30, 2.18, 0.42), Vector3(0.34, 0.30, 0.12), skin_light)
     _hulk_part(SphereMesh.new(), Vector3(0.30, 2.18, 0.42), Vector3(0.34, 0.30, 0.12), skin_light)
     for side in [-1.0, 1.0]:
@@ -453,6 +469,7 @@ func _create_hulk() -> void:
         _hulk_part(CapsuleMesh.new(), Vector3(side * 0.78, 1.72, 0.02), Vector3(0.39, 0.83, 0.40), skin)
         _hulk_part(SphereMesh.new(), Vector3(side * 0.88, 1.18, 0.06), Vector3(0.39, 0.40, 0.39), skin_light)
         _hulk_part(CapsuleMesh.new(), Vector3(side * 0.92, 0.79, 0.10), Vector3(0.34, 0.66, 0.34), skin)
+        _hulk_part(CapsuleMesh.new(), Vector3(side * 0.97, 1.38, 0.34), Vector3(0.07, 0.30, 0.08), skin_light)
         _hulk_part(SphereMesh.new(), Vector3(side * 0.92, 0.48, 0.18), Vector3(0.38, 0.29, 0.34), skin_dark)
         _hulk_part(CapsuleMesh.new(), Vector3(side * 0.30, 0.83, 0), Vector3(0.34, 0.78, 0.35), skin)
         _hulk_part(SphereMesh.new(), Vector3(side * 0.30, 0.42, 0.03), Vector3(0.35, 0.35, 0.38), pants_light)
@@ -680,7 +697,9 @@ func _create_army(color: Color, side: int) -> MultiMeshInstance3D:
     var material := StandardMaterial3D.new()
     material.albedo_color = Color.WHITE
     material.vertex_color_use_as_albedo = true
-    material.roughness = 0.88
+    material.metallic = 0.0
+    material.roughness = 0.94
+    material.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
     instance.material_override = material
     return instance
 
