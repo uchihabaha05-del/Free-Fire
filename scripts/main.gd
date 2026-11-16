@@ -7,9 +7,9 @@ const FIELD_WIDTH := 110.0
 const FIELD_DEPTH := 72.0
 const MAP_SIZE := 240.0
 const MAP_RADIUS := 100.0
-const TERRAIN_SEGMENTS := 180
-const GRASS_COUNT := 12000
-const ROCK_COUNT := 520
+const TERRAIN_SEGMENTS := 96
+const GRASS_COUNT := 2600
+const ROCK_COUNT := 180
 
 var team_a_count := 3
 var team_b_count := 3
@@ -55,9 +55,41 @@ var touch_joy_vector := Vector2.ZERO
 
 func _ready() -> void:
     rng.randomize()
-    _build_world()
+    # Show a usable scene and controls immediately; build detailed scenery after
+    # the first rendered frame to avoid a blank/grey launch screen on Android.
+    _create_bootstrap_world()
     _build_ui()
     _refresh_ui()
+    call_deferred("_build_world")
+
+func _create_bootstrap_world() -> void:
+    var env := WorldEnvironment.new()
+    var environment := Environment.new()
+    environment.background_mode = Environment.BG_COLOR
+    environment.background_color = Color(0.47, 0.56, 0.63)
+    environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+    environment.ambient_light_color = Color(0.78, 0.80, 0.82)
+    environment.ambient_light_energy = 1.0
+    env.environment = environment
+    add_child(env)
+
+    var floor_node := MeshInstance3D.new()
+    floor_node.name = "LaunchFallbackGround"
+    var floor_mesh := PlaneMesh.new()
+    floor_mesh.size = Vector2(MAP_SIZE, MAP_SIZE)
+    floor_node.mesh = floor_mesh
+    var floor_material := StandardMaterial3D.new()
+    floor_material.albedo_color = Color(0.48, 0.43, 0.34)
+    floor_material.roughness = 1.0
+    floor_node.material_override = floor_material
+    floor_node.position.y = -0.15
+    add_child(floor_node)
+
+    var sun := DirectionalLight3D.new()
+    sun.rotation_degrees = Vector3(-48, -28, 0)
+    sun.light_energy = 1.35
+    add_child(sun)
+    _create_camera()
 
 func _build_world() -> void:
     var env := WorldEnvironment.new()
@@ -92,7 +124,7 @@ func _build_world() -> void:
 
     _create_terrain()
     _create_wasteland_props()
-    _create_camera()
+    # Camera is created before deferred world generation so the launch frame is visible.
 
 func _terrain_height(noise: FastNoiseLite, x: float, z: float) -> float:
     var broad := noise.get_noise_2d(x, z) * 3.8
@@ -240,7 +272,7 @@ func _add_grass_scatter() -> void:
 
 func _add_ruins() -> void:
     var stone := Color(0.43, 0.41, 0.36)
-    for cluster in range(16):
+    for cluster in range(8):
         var angle := rng.randf_range(0.0, TAU)
         var radius := rng.randf_range(35.0, 88.0)
         var center := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
@@ -254,7 +286,7 @@ func _add_ruins() -> void:
 
 func _add_outer_wall() -> void:
     var wall_material := Color(0.43, 0.41, 0.37)
-    var segments := 112
+    var segments := 64
     for i in range(segments):
         var angle := float(i) / float(segments) * TAU
         var next_angle := float(i + 1) / float(segments) * TAU
@@ -282,6 +314,7 @@ func _create_camera() -> void:
     battle_camera.near = 0.08
     battle_camera.far = 520.0
     add_child(battle_camera)
+    battle_camera.make_current()
 
 func _add_box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
     var node := MeshInstance3D.new()
