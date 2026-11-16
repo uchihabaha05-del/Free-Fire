@@ -41,6 +41,9 @@ var iron_man_right_palm: OmniLight3D
 var iron_man_attack_timer := 0.0
 var iron_man_hover_time := 0.0
 var iron_man_side := -1 # -1 = blue army, 1 = red army
+var hulk: Node3D
+var hulk_attack_timer := 0.0
+var hulk_motion_time := 0.0
 
 func _ready() -> void:
     rng.randomize()
@@ -48,6 +51,7 @@ func _ready() -> void:
     _build_ui()
     _setup_armies()
     _create_iron_man()
+    _create_hulk()
     _apply_visible_counts()
     _refresh_ui()
 
@@ -423,6 +427,114 @@ func _spawn_repulsor_beam(hand_offset: Vector3, target: Vector3) -> void:
     get_tree().create_timer(0.11).timeout.connect(beam.queue_free)
 
 
+
+func _create_hulk() -> void:
+    hulk = Node3D.new()
+    hulk.name = "HULK_HERO"
+    hulk.position = Vector3(0.0, _height_approx(0.0, 13.0), 13.0)
+    hulk.rotation.y = PI
+    add_child(hulk)
+
+    var skin := _hero_material(Color(0.12, 0.39, 0.12), 0.78)
+    var skin_light := _hero_material(Color(0.20, 0.52, 0.18), 0.72)
+    var skin_dark := _hero_material(Color(0.055, 0.22, 0.07), 0.82)
+    var pants := _hero_material(Color(0.20, 0.055, 0.29), 0.92)
+    var pants_light := _hero_material(Color(0.31, 0.10, 0.39), 0.88)
+    var hair := _hero_material(Color(0.055, 0.045, 0.035), 0.94)
+    var eye := _hero_material(Color(1.0, 0.22, 0.08), 0.28, true)
+
+    # Broad chest, trapezius and abdomen give Hulk a massive silhouette.
+    _hulk_part(SphereMesh.new(), Vector3(0, 2.05, 0), Vector3(1.08, 0.86, 0.55), skin)
+    _hulk_part(SphereMesh.new(), Vector3(0, 1.62, 0.02), Vector3(0.66, 0.58, 0.43), skin_light)
+    _hulk_part(SphereMesh.new(), Vector3(-0.30, 2.18, 0.42), Vector3(0.34, 0.30, 0.12), skin_light)
+    _hulk_part(SphereMesh.new(), Vector3(0.30, 2.18, 0.42), Vector3(0.34, 0.30, 0.12), skin_light)
+    for side in [-1.0, 1.0]:
+        _hulk_part(SphereMesh.new(), Vector3(side * 0.53, 2.34, 0), Vector3(0.48, 0.48, 0.48), skin)
+        _hulk_part(CapsuleMesh.new(), Vector3(side * 0.78, 1.72, 0.02), Vector3(0.39, 0.83, 0.40), skin)
+        _hulk_part(SphereMesh.new(), Vector3(side * 0.88, 1.18, 0.06), Vector3(0.39, 0.40, 0.39), skin_light)
+        _hulk_part(CapsuleMesh.new(), Vector3(side * 0.92, 0.79, 0.10), Vector3(0.34, 0.66, 0.34), skin)
+        _hulk_part(SphereMesh.new(), Vector3(side * 0.92, 0.48, 0.18), Vector3(0.38, 0.29, 0.34), skin_dark)
+        _hulk_part(CapsuleMesh.new(), Vector3(side * 0.30, 0.83, 0), Vector3(0.34, 0.78, 0.35), skin)
+        _hulk_part(SphereMesh.new(), Vector3(side * 0.30, 0.42, 0.03), Vector3(0.35, 0.35, 0.38), pants_light)
+        _hulk_part(SphereMesh.new(), Vector3(side * 0.30, 0.12, 0.16), Vector3(0.30, 0.17, 0.48), skin_dark)
+
+    # Torn purple shorts with uneven hems and a heavy belt line.
+    _hulk_part(BoxMesh.new(), Vector3(0, 1.02, 0), Vector3(0.86, 0.42, 0.48), pants)
+    _hulk_part(BoxMesh.new(), Vector3(-0.27, 0.77, 0), Vector3(0.39, 0.20, 0.46), pants_light)
+    _hulk_part(BoxMesh.new(), Vector3(0.27, 0.77, 0), Vector3(0.39, 0.20, 0.46), pants)
+    _hulk_part(BoxMesh.new(), Vector3(0, 1.20, 0.02), Vector3(0.90, 0.10, 0.50), pants_light)
+
+    # Neck, heavy jaw, brow ridge, nose, ears and swept dark hair.
+    _hulk_part(CylinderMesh.new(), Vector3(0, 2.62, 0), Vector3(0.34, 0.36, 0.34), skin_dark)
+    _hulk_part(SphereMesh.new(), Vector3(0, 2.98, 0.02), Vector3(0.43, 0.48, 0.39), skin_light)
+    _hulk_part(SphereMesh.new(), Vector3(0, 2.77, 0.30), Vector3(0.34, 0.20, 0.18), skin)
+    _hulk_part(SphereMesh.new(), Vector3(0, 3.02, 0.37), Vector3(0.10, 0.16, 0.10), skin_dark)
+    _hulk_part(SphereMesh.new(), Vector3(-0.19, 3.13, 0.34), Vector3(0.17, 0.09, 0.10), skin_dark)
+    _hulk_part(SphereMesh.new(), Vector3(0.19, 3.13, 0.34), Vector3(0.17, 0.09, 0.10), skin_dark)
+    _hulk_part(SphereMesh.new(), Vector3(-0.15, 3.04, 0.43), Vector3(0.055, 0.035, 0.025), eye)
+    _hulk_part(SphereMesh.new(), Vector3(0.15, 3.04, 0.43), Vector3(0.055, 0.035, 0.025), eye)
+    _hulk_part(SphereMesh.new(), Vector3(0, 2.86, 0.43), Vector3(0.18, 0.045, 0.035), hair)
+    _hulk_part(SphereMesh.new(), Vector3(0, 3.34, -0.01), Vector3(0.42, 0.19, 0.38), hair)
+    _hulk_part(SphereMesh.new(), Vector3(-0.30, 3.27, 0.02), Vector3(0.18, 0.22, 0.25), hair)
+    _hulk_part(SphereMesh.new(), Vector3(0.30, 3.27, 0.02), Vector3(0.18, 0.22, 0.25), hair)
+
+    var label := Label3D.new()
+    label.text = "HULK"
+    label.position = Vector3(0, 3.72, 0)
+    label.font_size = 48
+    label.modulate = Color(0.55, 1.0, 0.38)
+    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    hulk.add_child(label)
+
+func _hulk_part(mesh: PrimitiveMesh, pos: Vector3, scale: Vector3, material: Material) -> MeshInstance3D:
+    var part := MeshInstance3D.new()
+    part.mesh = mesh
+    part.position = pos
+    part.scale = scale
+    part.material_override = material
+    part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+    hulk.add_child(part)
+    return part
+
+func _update_hulk(delta: float) -> void:
+    if hulk == null:
+        return
+    hulk_motion_time += delta
+    hulk.position.y = _height_approx(0.0, 13.0) + absf(sin(hulk_motion_time * 2.1)) * 0.055
+    hulk.rotation.y = PI + sin(hulk_motion_time * 0.65) * 0.07
+    if not battle_running:
+        return
+    hulk_attack_timer -= delta * battle_speed
+    if hulk_attack_timer <= 0.0:
+        hulk_attack_timer = 1.35
+        _hulk_ground_slam()
+
+func _hulk_ground_slam() -> void:
+    if team_a_alive <= 0:
+        return
+    team_a_alive = maxi(0, team_a_alive - 18)
+    var ring := MeshInstance3D.new()
+    var torus := TorusMesh.new()
+    torus.inner_radius = 0.30
+    torus.outer_radius = 0.48
+    ring.mesh = torus
+    ring.position = Vector3(0, _height_approx(0.0, -8.0) + 0.16, -8.0)
+    ring.rotation.x = PI * 0.5
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.albedo_color = Color(0.50, 1.0, 0.28, 0.85)
+    material.emission_enabled = true
+    material.emission = Color(0.25, 0.9, 0.12)
+    material.emission_energy_multiplier = 2.5
+    material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+    ring.material_override = material
+    add_child(ring)
+    var tween := create_tween()
+    tween.tween_property(ring, "scale", Vector3(16.0, 16.0, 16.0), 0.38)
+    tween.parallel().tween_property(material, "albedo_color:a", 0.0, 0.38)
+    tween.tween_callback(ring.queue_free)
+    _apply_visible_counts()
+
 func _build_ui() -> void:
     var layer := CanvasLayer.new()
     layer.name = "GameUI"
@@ -651,6 +763,7 @@ func _apply_visible_counts() -> void:
 func _process(delta: float) -> void:
     _update_flight_camera(delta)
     _update_iron_man(delta)
+    _update_hulk(delta)
     if not battle_running:
         return
     battle_time += delta * battle_speed
