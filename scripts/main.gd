@@ -33,7 +33,7 @@ var camera_drag_active := false
 var touch_look_id := -1
 const CHARACTER_NAMES := ["Spider-Man", "Hulk", "Thor", "Captain America", "Iron Man", "Thanos", "Doctor Strange", "Black Panther", "Deadpool", "Wolverine"]
 const CHARACTER_MODELS := {
-    "Spider-Man": "res://assets/characters/spider_man.glb",
+    "Spider-Man": "res://assets/characters/SpideyMesh.dae",
     "Hulk": "res://assets/characters/hulk.glb",
     "Thor": "res://assets/characters/thor.glb",
     "Captain America": "res://assets/characters/captain_america.glb",
@@ -406,9 +406,17 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     var actor: Node3D
     var model_path: String = CHARACTER_MODELS.get(character_name, "")
     if model_path != "" and ResourceLoader.exists(model_path):
+        # Godot imports COLLADA (.dae) as a PackedScene just like GLB.
         var packed := load(model_path) as PackedScene
         if packed != null:
             actor = packed.instantiate() as Node3D
+    # Keep compatibility with a GLB copy if the model is later converted.
+    if actor == null and character_name == "Spider-Man":
+        var glb_path := "res://assets/characters/spider_man.glb"
+        if ResourceLoader.exists(glb_path):
+            var glb_scene := load(glb_path) as PackedScene
+            if glb_scene != null:
+                actor = glb_scene.instantiate() as Node3D
     if actor == null:
         actor = _create_character_placeholder(character_name, side)
     var row := int(index / 5)
