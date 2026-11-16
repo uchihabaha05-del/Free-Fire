@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - visual-upgrade/realistic-battlefield
     paths:
       - "project.godot"
       - "main.tscn"
