@@ -553,41 +553,6 @@ func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) ->
             if absf(angle) > 0.001:
                 skeleton.set_bone_pose_rotation(bone_index, Quaternion(Vector3.RIGHT, angle))
 
-func _create_character_placeholder(character_name: String, side: int) -> Node3D:
-    var actor := Node3D.new()
-    var team_color := Color(0.16, 0.38, 0.95) if side < 0 else Color(0.88, 0.16, 0.12)
-    var body_material := StandardMaterial3D.new()
-    body_material.albedo_color = team_color
-    body_material.roughness = 0.58
-    var body := MeshInstance3D.new()
-    var torso := CapsuleMesh.new()
-    torso.radius = 0.42
-    torso.height = 1.35
-    torso.radial_segments = 20
-    torso.rings = 10
-    body.mesh = torso
-    body.position.y = 1.05
-    body.material_override = body_material
-    actor.add_child(body)
-    var head := MeshInstance3D.new()
-    var head_mesh := SphereMesh.new()
-    head_mesh.radius = 0.31
-    head_mesh.height = 0.62
-    head_mesh.radial_segments = 20
-    head_mesh.rings = 12
-    head.mesh = head_mesh
-    head.position.y = 1.95
-    head.material_override = body_material
-    actor.add_child(head)
-    var label := Label3D.new()
-    label.text = character_name.to_upper() + " • MODEL NEEDED"
-    label.position.y = 2.55
-    label.font_size = 24
-    label.modulate = Color(1.0, 0.9, 0.65)
-    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-    actor.add_child(label)
-    return actor
-
 func _apply_visible_counts() -> void:
     team_a_alive = team_a_units.size()
     team_b_alive = team_b_units.size()
@@ -633,7 +598,7 @@ func _update_combat(delta: float) -> void:
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
                     attack_timer = 0.30
-                    _spawn_hit_effect(nearest.position + Vector3.UP * 12.0)
+                    _spawn_hit_effect(nearest.position + Vector3.UP * 1.2)
                     cooldown = 0.85
                     if float(enemy_data["health"]) <= 0.0:
                         enemies.erase(nearest)
