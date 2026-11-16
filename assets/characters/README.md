@@ -2,16 +2,16 @@
 
 The character picker supports Godot-importable COLLADA (.dae) and GLB scenes.
 
-## Spider-Man model supplied for this project
+## Spider-Man model
 
-Place these two files together in this folder:
+The source archive is stored at `assets/assets/SpideyMesh.zip`. The Android GitHub Actions workflow extracts its contents into this folder before Godot imports the project:
 
 - `SpideyMesh.dae` — skinned Spider-Man mesh
-- `Spidey512.png` — its texture
+- `Spidey512.png` — referenced texture
 
-The COLLADA file references the texture by the relative path `../assets/Spidey512.png` when stored here. Alternatively, edit its image URI to `Spidey512.png` if you place the texture beside the DAE.
+Both files are placed together so the COLLADA texture reference `Spidey512.png` resolves correctly.
 
-The game now tries `res://assets/characters/SpideyMesh.dae` for Spider-Man, then falls back to `spider_man.glb` if present.
+The game loads `res://assets/characters/SpideyMesh.dae` for Spider-Man and falls back to `spider_man.glb` if the DAE scene cannot be loaded.
 
 ## Other heroes
 
@@ -27,6 +27,6 @@ The character picker can load these GLB files when supplied:
 - deadpool.glb
 - wolverine.glb
 
-Use rigged, game-ready models. Keep each model's license and attribution file beside it. Only add models you have permission to use and redistribute in this project.
+Use rigged, game-ready models. Keep each model's license and attribution file beside the model. Only add models you have permission to use and redistribute in this project.
 
 Until a matching model file is present, the game displays a clearly marked temporary placeholder. The placeholder is not an official Marvel design and is not intended to look like the original character.
