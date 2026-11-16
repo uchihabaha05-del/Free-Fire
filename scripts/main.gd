@@ -54,16 +54,22 @@ var touch_joy_origin := Vector2.ZERO
 var touch_joy_vector := Vector2.ZERO
 
 var main_menu: Control
+var main_menu_layer: CanvasLayer
 
 func _ready() -> void:
     rng.randomize()
     _show_main_menu()
 
 func _show_main_menu() -> void:
+    main_menu_layer = CanvasLayer.new()
+    main_menu_layer.name = "MainMenuLayer"
+    main_menu_layer.layer = 10
+    add_child(main_menu_layer)
+
     main_menu = Control.new()
     main_menu.name = "MainMenu"
     main_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-    add_child(main_menu)
+    main_menu_layer.add_child(main_menu)
 
     var backdrop := ColorRect.new()
     backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -110,8 +116,8 @@ func _show_main_menu() -> void:
     content.add_child(hint)
 
 func _enter_game() -> void:
-    if is_instance_valid(main_menu):
-        main_menu.queue_free()
+    if is_instance_valid(main_menu_layer):
+        main_menu_layer.queue_free()
     _create_bootstrap_world()
     _build_ui()
     _refresh_ui()
@@ -599,7 +605,7 @@ func _update_combat(delta: float) -> void:
                 actor.position.y = _height_approx(actor.position.x, actor.position.z)
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
             else:
-                var actor_id := actor.get_instance_id()
+                var actor_id: int = actor.get_instance_id()
                 var data: Dictionary = unit_data.get(actor_id, {})
                 var cooldown := float(data.get("cooldown", 0.0)) - delta
                 if cooldown <= 0.0:
@@ -607,7 +613,7 @@ func _update_combat(delta: float) -> void:
                     var enemy_data: Dictionary = unit_data.get(enemy_id, {})
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
-                    var old_scale := actor.scale
+                    var old_scale: Vector3 = actor.scale
                     actor.scale = old_scale * 1.10
                     var attack_tween := create_tween()
                     attack_tween.tween_property(actor, "scale", old_scale, 0.16)
