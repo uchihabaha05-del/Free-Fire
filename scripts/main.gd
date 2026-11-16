@@ -1,15 +1,15 @@
 extends Node3D
 
 # MASS BATTLE — native Godot port of Claude's wasteland map.
-# The source map is 2.4 km wide; this mobile-friendly version is scaled to 240 m.
+# Native Godot recreation of the supplied Three.js map: 2.4 km terrain, 1 km radius.
 const MAX_UNITS := 10000
-const FIELD_WIDTH := 110.0
-const FIELD_DEPTH := 72.0
-const MAP_SIZE := 240.0
-const MAP_RADIUS := 100.0
-const TERRAIN_SEGMENTS := 96
-const GRASS_COUNT := 2600
-const ROCK_COUNT := 180
+const FIELD_WIDTH := 1100.0
+const FIELD_DEPTH := 720.0
+const MAP_SIZE := 2400.0
+const MAP_RADIUS := 1000.0
+const TERRAIN_SEGMENTS := 192
+const GRASS_COUNT := 18000
+const ROCK_COUNT := 700
 
 var team_a_count := 3
 var team_b_count := 3
@@ -28,21 +28,13 @@ var start_button: Button
 var battle_camera: Camera3D
 var camera_move := {"forward": false, "back": false, "left": false, "right": false, "up": false, "down": false}
 var camera_look_sensitivity := 0.0025
-var camera_flight_speed := 28.0
+var camera_flight_speed := 280.0
 var camera_drag_active := false
 var touch_look_id := -1
-const CHARACTER_NAMES := ["Spider-Man", "Hulk", "Thor", "Captain America", "Iron Man", "Thanos", "Doctor Strange", "Black Panther", "Deadpool", "Wolverine"]
+const CHARACTER_NAMES := ["Spider-Man", "Hulk"]
 const CHARACTER_MODELS := {
     "Spider-Man": "res://assets/characters/SpideyMesh.dae",
     "Hulk": "res://assets/characters/b337594dc560b6dd1d13c8c4d744eef9.glb",
-    "Thor": "res://assets/characters/thor.glb",
-    "Captain America": "res://assets/characters/captain_america.glb",
-    "Iron Man": "res://assets/characters/iron_man.glb",
-    "Thanos": "res://assets/characters/thanos.glb",
-    "Doctor Strange": "res://assets/characters/doctor_strange.glb",
-    "Black Panther": "res://assets/characters/black_panther.glb",
-    "Deadpool": "res://assets/characters/deadpool.glb",
-    "Wolverine": "res://assets/characters/wolverine.glb"
 }
 var team_a_units: Array[Node3D] = []
 var team_b_units: Array[Node3D] = []
@@ -192,13 +184,13 @@ func _build_world() -> void:
 
 func _terrain_height(noise: FastNoiseLite, x: float, z: float) -> float:
     var broad := noise.get_noise_2d(x, z) * 3.8
-    var detail := noise.get_noise_2d(x * 3.2 + 31.0, z * 3.2 - 17.0) * 0.55
+    var detail := noise.get_noise_2d(x * 0.004 + 31.0, z * 0.004 - 17.0) * 0.35
     return broad + detail
 
 func _create_terrain() -> void:
     var noise := FastNoiseLite.new()
     noise.seed = 4812
-    noise.frequency = 0.012
+    noise.frequency = 0.0012
     noise.fractal_octaves = 4
     noise.fractal_gain = 0.48
 
@@ -235,8 +227,8 @@ func _create_terrain() -> void:
     add_child(terrain)
 
 func _terrain_vertex(surface: SurfaceTool, point: Vector3, uv: Vector2, noise: FastNoiseLite) -> void:
-    var patch := noise.get_noise_2d(point.x * 0.055 + 170.0, point.z * 0.055 - 90.0)
-    var moisture := noise.get_noise_2d(point.x * 0.025 - 300.0, point.z * 0.025 + 200.0)
+    var patch := noise.get_noise_2d(point.x * 0.0055 + 170.0, point.z * 0.0055 - 90.0)
+    var moisture := noise.get_noise_2d(point.x * 0.0025 - 300.0, point.z * 0.0025 + 200.0)
     var dirt := Color(0.52, 0.43, 0.30)
     var dry_grass := Color(0.42, 0.50, 0.29)
     var dusty := Color(0.66, 0.59, 0.45)
@@ -254,15 +246,15 @@ func _create_wasteland_props() -> void:
     _add_outer_wall()
 
 func _add_dirt_track() -> void:
-    var road := _add_box(Vector3(13.0, 0.10, FIELD_DEPTH + 28.0), Vector3(0, 0.02, 0), Color(0.30, 0.25, 0.18))
+    var road := _add_box(Vector3(130.0, 0.10, FIELD_DEPTH + 280.0), Vector3(0, 0.02, 0), Color(0.30, 0.25, 0.18))
     road.rotation_degrees.y = 1.5
     for side in [-1, 1]:
         for row in range(3):
-            var z := float(side) * (13.0 + float(row) * 8.0)
-            _add_box(Vector3(25.0 - float(row) * 3.0, 1.0, 1.5), Vector3(float(side) * (7.0 - float(row) * 1.5), 0.42, z), Color(0.34, 0.31, 0.24))
+            var z := float(side) * (130.0 + float(row) * 80.0)
+            _add_box(Vector3(250.0 - float(row) * 30.0, 1.0, 15.0), Vector3(float(side) * (70.0 - float(row) * 15.0), 0.42, z), Color(0.34, 0.31, 0.24))
         for i in range(7):
-            var x := -42.0 + float(i) * 14.0
-            _add_box(Vector3(4.0, 0.72, 1.0), Vector3(x, 0.34, float(side) * 25.0), Color(0.49, 0.43, 0.31))
+            var x := -420.0 + float(i) * 140.0
+            _add_box(Vector3(40.0, 0.72, 10.0), Vector3(x, 0.34, float(side) * 250.0), Color(0.49, 0.43, 0.31))
 
 func _add_rock_scatter() -> void:
     var rock := SphereMesh.new()
@@ -277,12 +269,12 @@ func _add_rock_scatter() -> void:
     mm.instance_count = ROCK_COUNT
     for i in range(ROCK_COUNT):
         var angle := rng.randf_range(0.0, TAU)
-        var radius := sqrt(rng.randf()) * 96.0
+        var radius := sqrt(rng.randf()) * 960.0
         var x := cos(angle) * radius
         var z := sin(angle) * radius
-        if absf(x) < 9.0 and absf(z) < 17.0:
-            x += signf(x if x != 0.0 else 1.0) * 13.0
-        var scale := rng.randf_range(0.45, 2.2)
+        if absf(x) < 90.0 and absf(z) < 170.0:
+            x += signf(x if x != 0.0 else 1.0) * 130.0
+        var scale := rng.randf_range(1.2, 6.0)
         var pos := Vector3(x, _height_approx(x, z) + scale * 0.35, z)
         var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(scale * rng.randf_range(0.8, 1.4), scale * rng.randf_range(0.5, 0.9), scale))
         mm.set_instance_transform(i, Transform3D(basis, pos))
@@ -307,13 +299,13 @@ func _add_grass_scatter() -> void:
     mm.mesh = blade
     mm.instance_count = GRASS_COUNT
     for i in range(GRASS_COUNT):
-        var x := rng.randf_range(-98.0, 98.0)
-        var z := rng.randf_range(-98.0, 98.0)
-        if Vector2(x, z).length() > 99.0:
+        var x := rng.randf_range(-980.0, 980.0)
+        var z := rng.randf_range(-980.0, 980.0)
+        if Vector2(x, z).length() > 990.0:
             x *= 0.82
             z *= 0.82
-        if absf(x) < 8.0 and absf(z) < 16.0:
-            x += signf(x if x != 0.0 else 1.0) * 12.0
+        if absf(x) < 80.0 and absf(z) < 160.0:
+            x += signf(x if x != 0.0 else 1.0) * 120.0
         var h := rng.randf_range(0.55, 1.35)
         var pos := Vector3(x, _height_approx(x, z) + h * 0.5 - 0.04, z)
         var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(rng.randf_range(0.8, 1.5), h, 1.0))
@@ -338,43 +330,43 @@ func _add_ruins() -> void:
     var stone := Color(0.43, 0.41, 0.36)
     for cluster in range(8):
         var angle := rng.randf_range(0.0, TAU)
-        var radius := rng.randf_range(35.0, 88.0)
+        var radius := rng.randf_range(350.0, 880.0)
         var center := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
         var pieces := rng.randi_range(8, 16)
         for i in range(pieces):
-            var offset := Vector3(rng.randf_range(-7.0, 7.0), 0.0, rng.randf_range(-7.0, 7.0))
-            var h := rng.randf_range(0.8, 3.2)
-            var size := Vector3(rng.randf_range(1.2, 3.8), h, rng.randf_range(1.2, 3.0))
+            var offset := Vector3(rng.randf_range(-70.0, 70.0), 0.0, rng.randf_range(-70.0, 70.0))
+            var h := rng.randf_range(8.0, 32.0)
+            var size := Vector3(rng.randf_range(12.0, 38.0), h, rng.randf_range(12.0, 30.0))
             var block := _add_box(size, center + offset + Vector3(0, h * 0.5, 0), stone.lightened(rng.randf_range(-0.08, 0.08)))
             block.rotation_degrees = Vector3(rng.randf_range(-5, 5), rng.randf_range(0, 180), rng.randf_range(-5, 5))
 
 func _add_outer_wall() -> void:
     var wall_material := Color(0.43, 0.41, 0.37)
-    var segments := 64
+    var segments := 160
     for i in range(segments):
         var angle := float(i) / float(segments) * TAU
         var next_angle := float(i + 1) / float(segments) * TAU
         var middle := (angle + next_angle) * 0.5
         var arc_length := TAU * MAP_RADIUS / float(segments)
-        var pos := Vector3(cos(middle) * MAP_RADIUS, 11.0, sin(middle) * MAP_RADIUS)
-        var wall := _add_box(Vector3(arc_length + 0.8, 22.0, 4.5), pos, wall_material)
+        var pos := Vector3(cos(middle) * MAP_RADIUS, 90.0, sin(middle) * MAP_RADIUS)
+        var wall := _add_box(Vector3(arc_length + 0.8, 260.0, 44.0), pos, wall_material)
         wall.rotation.y = -middle
         if i % 4 == 0:
-            var buttress := _add_box(Vector3(5.0, 25.0, 7.0), Vector3(cos(angle) * (MAP_RADIUS - 2.5), 12.5, sin(angle) * (MAP_RADIUS - 2.5)), wall_material.darkened(0.08))
+            var buttress := _add_box(Vector3(50.0, 270.0, 70.0), Vector3(cos(angle) * (MAP_RADIUS - 24.0), 94.0, sin(angle) * (MAP_RADIUS - 24.0)), wall_material.darkened(0.08))
             buttress.rotation.y = -angle
 
 func _height_approx(x: float, z: float) -> float:
-    var broad := sin(x * 0.11) * cos(z * 0.09) * 1.4
-    var detail := sin(x * 0.43 + 31.0) * cos(z * 0.37 - 17.0) * 0.22
+    var broad := sin(x * 0.0011) * cos(z * 0.0009) * 2.8
+    var detail := sin(x * 0.0043 + 31.0) * cos(z * 0.0037 - 17.0) * 0.25
     return broad + detail
 
 func _create_camera() -> void:
     battle_camera = Camera3D.new()
     battle_camera.name = "FreeFlightCamera"
-    battle_camera.position = Vector3(0, 27, 68)
+    battle_camera.position = Vector3(0, 190, 720)
     battle_camera.fov = 66
     battle_camera.near = 0.08
-    battle_camera.far = 520.0
+    battle_camera.far = 6200.0
     add_child(battle_camera)
     # Use a target point rather than a hard-coded Euler angle: this keeps the
     # camera looking at the playable map on every device and aspect ratio.
@@ -417,7 +409,7 @@ func _build_ui() -> void:
     column.add_child(subtitle)
     column.add_child(HSeparator.new())
     column.add_child(_make_label("СИНЯЯ КОМАНДА — ПЕРСОНАЖ"))
-    a_character_option = _make_character_option("Iron Man")
+    a_character_option = _make_character_option("Spider-Man")
     column.add_child(a_character_option)
     column.add_child(_make_label("КОЛИЧЕСТВО ПЕРСОНАЖЕЙ"))
     a_spin = _make_spin(3)
@@ -441,7 +433,9 @@ func _make_character_option(selected_name: String) -> OptionButton:
     var option := OptionButton.new()
     option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     for character_name in CHARACTER_NAMES:
-        option.add_item(character_name)
+        var model_path: String = CHARACTER_MODELS.get(character_name, "")
+        if ResourceLoader.exists(model_path):
+            option.add_item(character_name)
     option.select(CHARACTER_NAMES.find(selected_name))
     return option
 
@@ -511,23 +505,20 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
             actor = packed.instantiate() as Node3D
     # Keep compatibility with a GLB copy if the model is later converted.
     if actor == null and character_name == "Spider-Man":
-        var glb_path := "res://assets/characters/spider_man.glb"
-        if ResourceLoader.exists(glb_path):
-            var glb_scene := load(glb_path) as PackedScene
-            if glb_scene != null:
-                actor = glb_scene.instantiate() as Node3D
-    if actor == null:
-        actor = _create_character_placeholder(character_name, side)
+        if actor == null:
+        push_error("Character model failed to load: " + character_name + " — battle spawn skipped")
+        return null
     var row := int(index / 5)
     var col := index % 5
     var spread := minf(float(amount), 5.0)
-    var x := (float(col) - (spread - 1.0) * 0.5) * 2.2
-    var z := float(side) * (12.0 + float(row) * 2.4)
+    var x := (float(col) - (spread - 1.0) * 0.5) * 22.0
+    var z := float(side) * (130.0 + float(row) * 24.0)
     actor.name = "%s_Team_%s_%02d" % [character_name.replace(" ", ""), "Blue" if side < 0 else "Red", index]
     actor.position = Vector3(x, _height_approx(x, z), z)
     actor.scale = Vector3.ONE
     add_child(actor)
-    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 12.0), -float(side) * 12.0), Vector3.UP)
+    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 130.0), -float(side) * 130.0), Vector3.UP)
+    _apply_model_facing_correction(actor)
 
     # Play the first imported rig animation when the model provides one.
     var animation_players := actor.find_children("*", "AnimationPlayer", true, false)
@@ -600,10 +591,11 @@ func _update_combat(delta: float) -> void:
             if nearest == null:
                 continue
             var direction := Vector3(nearest.position.x - actor.position.x, 0.0, nearest.position.z - actor.position.z)
-            if nearest_distance > 2.0:
-                actor.position += direction.normalized() * 2.8 * delta
+            if nearest_distance > 12.0:
+                actor.position += direction.normalized() * 28.0 * delta
                 actor.position.y = _height_approx(actor.position.x, actor.position.z)
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
+                _apply_model_facing_correction(actor)
             else:
                 var actor_id: int = actor.get_instance_id()
                 var data: Dictionary = unit_data.get(actor_id, {})
@@ -686,7 +678,8 @@ func _update_flight_camera(delta: float) -> void:
         return
     var move := Vector3.ZERO
     if touch_joy_vector.length() > 0.08:
-        move -= battle_camera.global_basis.z * touch_joy_vector.y
+        # Screen up (negative Y) moves forward along camera -Z; screen down moves backward.
+        move += battle_camera.global_basis.z * touch_joy_vector.y
         move += battle_camera.global_basis.x * touch_joy_vector.x
     if Input.is_key_pressed(KEY_W):
         move -= battle_camera.global_basis.z
@@ -708,7 +701,7 @@ func _update_flight_camera(delta: float) -> void:
         var factor := (MAP_RADIUS - 3.0) / radius
         pos.x *= factor
         pos.z *= factor
-    pos.y = clampf(pos.y, _height_approx(pos.x, pos.z) + 1.8, 250.0)
+    pos.y = clampf(pos.y, _height_approx(pos.x, pos.z) + 2.0, 2600.0)
     battle_camera.global_position = pos
 
 func _unhandled_input(event: InputEvent) -> void:
