@@ -432,11 +432,17 @@ func _build_ui() -> void:
 func _make_character_option(selected_name: String) -> OptionButton:
     var option := OptionButton.new()
     option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    var selected_index := 0
     for character_name in CHARACTER_NAMES:
         var model_path: String = CHARACTER_MODELS.get(character_name, "")
         if ResourceLoader.exists(model_path):
             option.add_item(character_name)
-    option.select(CHARACTER_NAMES.find(selected_name))
+            var item_index := option.item_count - 1
+            option.set_item_metadata(item_index, character_name)
+            if character_name == selected_name:
+                selected_index = item_index
+    if option.item_count > 0:
+        option.select(selected_index)
     return option
 
 func _make_label(value: String) -> Label:
@@ -461,8 +467,8 @@ func _start_battle() -> void:
     team_b_count = clampi(int(b_spin.value), 1, 50)
     team_a_alive = team_a_count
     team_b_alive = team_b_count
-    _spawn_team(CHARACTER_NAMES[a_character_option.selected], -1, team_a_count)
-    _spawn_team(CHARACTER_NAMES[b_character_option.selected], 1, team_b_count)
+    _spawn_team(str(a_character_option.get_item_metadata(a_character_option.selected)), -1, team_a_count)
+    _spawn_team(str(b_character_option.get_item_metadata(b_character_option.selected)), 1, team_b_count)
     battle_running = true
     start_button.text = "ПЕРЕЗАПУСТИТЬ БОЙ"
     _refresh_ui()
@@ -550,6 +556,8 @@ func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) ->
                 angle = sin(phase + side_phase) * 0.62
             elif moving and is_leg:
                 angle = sin(phase + side_phase) * 0.78
+            elif not moving and not attacking and (bone_name.contains("spine") or bone_name.contains("chest")):
+                angle = sin(phase * 0.45) * 0.025
             if absf(angle) > 0.001:
                 skeleton.set_bone_pose_rotation(bone_index, Quaternion(Vector3.RIGHT, angle))
 
