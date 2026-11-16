@@ -1,0 +1,114 @@
+name: MASS BATTLE Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "project.godot"
+      - "main.tscn"
+      - "scripts/**"
+      - "export_presets.cfg"
+      - "ci/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mass-battle-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-android:
+    name: Build debug APK (Godot 4.3)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages for Godot 4.3
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "build-tools;34.0.0" \
+            "platforms;android-34" \
+            "cmdline-tools;latest" \
+            "cmake;3.10.2.4988404" \
+            "ndk;23.2.8568313"
+
+      - name: Download Godot 4.3 editor and matching export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          GODOT_VERSION="4.3-stable"
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip" \
+            --output godot.zip
+          unzip -q godot.zip -d godot-bin
+          sudo install -m 0755 godot-bin/Godot_v${GODOT_VERSION}_linux.x86_64 /usr/local/bin/godot
+          curl --fail --location --retry 3 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_export_templates.tpz" \
+            --output export_templates.tpz
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/4.3.stable"
+          mkdir -p "$TEMPLATE_DIR"
+          unzip -q -o -j export_templates.tpz "templates/*" "version.txt" -d "$TEMPLATE_DIR"
+          godot --version
+          test -s "$TEMPLATE_DIR/android_debug.apk"
+
+      - name: Create temporary debug signing key
+        run: |
+          keytool -genkeypair -v \
+            -keystore "$RUNNER_TEMP/mass-battle-debug.keystore" \
+            -storepass android -keypass android \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
+      - name: Import project resources
+        run: godot --headless --editor --path . --import
+
+      - name: Configure Godot Android SDK paths
+        run: godot --headless --editor --path . --script res://ci/configure_android.gd
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/mass-battle-debug.keystore
+
+      - name: Headless editor validation
+        run: godot --headless --editor --path . --quit
+
+      - name: Headless game startup check
+        run: godot --headless --path . --quit-after 3
+
+      - name: Export Android debug APK
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-debug "Android" build/MASS-BATTLE-debug.apk
+          test -s build/MASS-BATTLE-debug.apk
+        env:
+          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/mass-battle-debug.keystore
+          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
+          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+
+      - name: Verify APK archive
+        run: |
+          unzip -t build/MASS-BATTLE-debug.apk
+          ls -lh build/MASS-BATTLE-debug.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MASS-BATTLE-Android-debug
+          path: build/MASS-BATTLE-debug.apk
+          if-no-files-found: error
+          retention-days: 14
