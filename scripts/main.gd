@@ -34,12 +34,20 @@ var camera_look_sensitivity := 0.0025
 var camera_flight_speed := 28.0
 var camera_drag_active := false
 var touch_look_id := -1
+var iron_man: Node3D
+var iron_man_core: MeshInstance3D
+var iron_man_left_palm: OmniLight3D
+var iron_man_right_palm: OmniLight3D
+var iron_man_attack_timer := 0.0
+var iron_man_hover_time := 0.0
+var iron_man_side := -1 # -1 = blue army, 1 = red army
 
 func _ready() -> void:
     rng.randomize()
     _build_world()
     _build_ui()
     _setup_armies()
+    _create_iron_man()
     _apply_visible_counts()
     _refresh_ui()
 
@@ -278,6 +286,143 @@ func _add_box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
     add_child(node)
     return node
 
+
+func _create_iron_man() -> void:
+    iron_man = Node3D.new()
+    iron_man.name = "IRON_MAN_HERO"
+    iron_man.position = Vector3(0.0, 5.2, float(iron_man_side) * 13.0)
+    add_child(iron_man)
+
+    var red := _hero_material(Color(0.48, 0.025, 0.018), 0.32)
+    var red_dark := _hero_material(Color(0.20, 0.012, 0.009), 0.42)
+    var gold := _hero_material(Color(0.92, 0.58, 0.12), 0.30)
+    var gold_light := _hero_material(Color(1.0, 0.76, 0.30), 0.24)
+    var reactor := _hero_material(Color(0.30, 0.88, 1.0), 0.16, true)
+    var dark := _hero_material(Color(0.035, 0.045, 0.055), 0.5)
+
+    _hero_part(BoxMesh.new(), Vector3(0, 1.25, 0), Vector3(0.92, 1.12, 0.48), red)
+    _hero_part(SphereMesh.new(), Vector3(0, 1.95, 0.02), Vector3(0.34, 0.42, 0.34), gold)
+    _hero_part(BoxMesh.new(), Vector3(0, 1.93, 0.12), Vector3(0.34, 0.07, 0.12), reactor)
+    _hero_part(SphereMesh.new(), Vector3(0, 1.23, 0.27), Vector3(0.24, 0.24, 0.08), reactor)
+
+    # Red-and-gold shoulder armor, arms, gauntlets and legs.
+    for side in [-1.0, 1.0]:
+        _hero_part(SphereMesh.new(), Vector3(side * 0.53, 1.62, 0), Vector3(0.34, 0.34, 0.34), gold)
+        _hero_part(CapsuleMesh.new(), Vector3(side * 0.62, 1.13, 0.02), Vector3(0.24, 0.72, 0.24), red)
+        _hero_part(BoxMesh.new(), Vector3(side * 0.62, 0.78, 0.19), Vector3(0.25, 0.22, 0.30), gold)
+        _hero_part(SphereMesh.new(), Vector3(side * 0.62, 0.72, 0.34), Vector3(0.16, 0.16, 0.10), reactor)
+        _hero_part(CapsuleMesh.new(), Vector3(side * 0.25, 0.38, 0), Vector3(0.29, 0.78, 0.30), red_dark)
+        _hero_part(BoxMesh.new(), Vector3(side * 0.25, 0.04, 0.12), Vector3(0.34, 0.20, 0.52), gold)
+        _hero_part(SphereMesh.new(), Vector3(side * 0.25, -0.12, -0.12), Vector3(0.13, 0.18, 0.13), reactor)
+
+    # Helmet faceplate and narrow glowing eye slits.
+    _hero_part(SphereMesh.new(), Vector3(0, 2.08, 0.08), Vector3(0.27, 0.18, 0.28), gold_light)
+    _hero_part(BoxMesh.new(), Vector3(-0.12, 2.10, 0.30), Vector3(0.12, 0.035, 0.025), reactor)
+    _hero_part(BoxMesh.new(), Vector3(0.12, 2.10, 0.30), Vector3(0.12, 0.035, 0.025), reactor)
+    _hero_part(BoxMesh.new(), Vector3(0, 1.42, -0.30), Vector3(0.72, 0.78, 0.16), red_dark)
+
+    # Back thruster pack and blue exhaust glow.
+    _hero_part(BoxMesh.new(), Vector3(0, 1.23, -0.34), Vector3(0.62, 0.68, 0.22), gold)
+    for side in [-1.0, 1.0]:
+        _hero_part(CylinderMesh.new(), Vector3(side * 0.19, 0.82, -0.40), Vector3(0.18, 0.36, 0.18), reactor)
+    iron_man_core = iron_man.get_node_or_null("Part_3") as MeshInstance3D
+    iron_man_left_palm = _hero_light(Vector3(-0.62, 0.72, 0.40))
+    iron_man_right_palm = _hero_light(Vector3(0.62, 0.72, 0.40))
+    var core_light := OmniLight3D.new()
+    core_light.position = Vector3(0, 1.23, 0.42)
+    core_light.light_color = Color(0.24, 0.78, 1.0)
+    core_light.light_energy = 1.4
+    core_light.omni_range = 5.0
+    iron_man.add_child(core_light)
+
+    var label := Label3D.new()
+    label.text = "IRON MAN"
+    label.position = Vector3(0, 2.55, 0)
+    label.font_size = 48
+    label.modulate = Color(1.0, 0.78, 0.32)
+    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    iron_man.add_child(label)
+
+func _hero_material(color: Color, roughness: float, glow: bool = false) -> StandardMaterial3D:
+    var material := StandardMaterial3D.new()
+    material.albedo_color = color
+    material.metallic = 0.72
+    material.roughness = roughness
+    if glow:
+        material.emission_enabled = true
+        material.emission = color
+        material.emission_energy_multiplier = 2.8
+    return material
+
+func _hero_part(mesh: PrimitiveMesh, pos: Vector3, scale: Vector3, material: Material) -> MeshInstance3D:
+    var part := MeshInstance3D.new()
+    part.mesh = mesh
+    part.position = pos
+    part.scale = scale
+    part.material_override = material
+    part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+    iron_man.add_child(part)
+    return part
+
+func _hero_light(pos: Vector3) -> OmniLight3D:
+    var light := OmniLight3D.new()
+    light.position = pos
+    light.light_color = Color(0.22, 0.78, 1.0)
+    light.light_energy = 2.2
+    light.omni_range = 3.8
+    iron_man.add_child(light)
+    return light
+
+func _update_iron_man(delta: float) -> void:
+    if iron_man == null:
+        return
+    iron_man_hover_time += delta
+    var target_z := float(iron_man_side) * (10.5 + sin(iron_man_hover_time * 0.8) * 1.4)
+    iron_man.position = Vector3(sin(iron_man_hover_time * 0.55) * 4.0, 5.2 + sin(iron_man_hover_time * 2.4) * 0.22, target_z)
+    iron_man.rotation.y = sin(iron_man_hover_time * 0.7) * 0.10
+    var pulse := 1.7 + absf(sin(iron_man_hover_time * 5.0)) * 1.1
+    iron_man_left_palm.light_energy = pulse
+    iron_man_right_palm.light_energy = pulse
+    if not battle_running:
+        return
+    iron_man_attack_timer -= delta * battle_speed
+    if iron_man_attack_timer <= 0.0:
+        iron_man_attack_timer = 0.72
+        _iron_man_repulsor_attack()
+
+func _iron_man_repulsor_attack() -> void:
+    if iron_man_side < 0:
+        if team_b_alive <= 0:
+            return
+        team_b_alive = maxi(0, team_b_alive - 7)
+        _spawn_repulsor_beam(Vector3(0.62, 0.72, 0.40), Vector3(0, 1.2, 15.0))
+    else:
+        if team_a_alive <= 0:
+            return
+        team_a_alive = maxi(0, team_a_alive - 7)
+        _spawn_repulsor_beam(Vector3(0.62, 0.72, 0.40), Vector3(0, 1.2, -15.0))
+    _apply_visible_counts()
+
+func _spawn_repulsor_beam(hand_offset: Vector3, target: Vector3) -> void:
+    var beam := MeshInstance3D.new()
+    var immediate := ImmediateMesh.new()
+    immediate.surface_begin(Mesh.PRIMITIVE_LINES)
+    immediate.surface_add_vertex(hand_offset)
+    immediate.surface_add_vertex(target)
+    immediate.surface_end()
+    beam.mesh = immediate
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.albedo_color = Color(0.35, 0.88, 1.0)
+    material.emission_enabled = true
+    material.emission = Color(0.20, 0.78, 1.0)
+    material.emission_energy_multiplier = 5.0
+    material.no_depth_test = true
+    beam.material_override = material
+    iron_man.add_child(beam)
+    get_tree().create_timer(0.11).timeout.connect(beam.queue_free)
+
+
 func _build_ui() -> void:
     var layer := CanvasLayer.new()
     layer.name = "GameUI"
@@ -505,6 +650,7 @@ func _apply_visible_counts() -> void:
 
 func _process(delta: float) -> void:
     _update_flight_camera(delta)
+    _update_iron_man(delta)
     if not battle_running:
         return
     battle_time += delta * battle_speed
