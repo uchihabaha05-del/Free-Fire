@@ -53,10 +53,65 @@ var touch_joy_id := -1
 var touch_joy_origin := Vector2.ZERO
 var touch_joy_vector := Vector2.ZERO
 
+var main_menu: Control
+
 func _ready() -> void:
     rng.randomize()
-    # Show a usable scene and controls immediately; build detailed scenery after
-    # the first rendered frame to avoid a blank/grey launch screen on Android.
+    _show_main_menu()
+
+func _show_main_menu() -> void:
+    main_menu = Control.new()
+    main_menu.name = "MainMenu"
+    main_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    add_child(main_menu)
+
+    var backdrop := ColorRect.new()
+    backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    backdrop.color = Color(0.035, 0.055, 0.085, 1.0)
+    main_menu.add_child(backdrop)
+
+    var center := CenterContainer.new()
+    center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    main_menu.add_child(center)
+
+    var content := VBoxContainer.new()
+    content.custom_minimum_size = Vector2(420, 0)
+    content.add_theme_constant_override("separation", 18)
+    center.add_child(content)
+
+    var title := Label.new()
+    title.text = "MASS BATTLE"
+    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    title.add_theme_font_size_override("font_size", 46)
+    content.add_child(title)
+
+    var subtitle := Label.new()
+    subtitle.text = "MARVEL HEROES • REAL-TIME BATTLES"
+    subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    subtitle.add_theme_font_size_override("font_size", 16)
+    content.add_child(subtitle)
+
+    var spacer := Control.new()
+    spacer.custom_minimum_size.y = 18
+    content.add_child(spacer)
+
+    var play := Button.new()
+    play.text = "ИГРАТЬ"
+    play.custom_minimum_size = Vector2(300, 64)
+    play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+    play.add_theme_font_size_override("font_size", 24)
+    play.pressed.connect(_enter_game)
+    content.add_child(play)
+
+    var hint := Label.new()
+    hint.text = "Выбирай героев и наблюдай за битвой"
+    hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    hint.add_theme_font_size_override("font_size", 13)
+    content.add_child(hint)
+
+func _enter_game() -> void:
+    if is_instance_valid(main_menu):
+        main_menu.queue_free()
     _create_bootstrap_world()
     _build_ui()
     _refresh_ui()
@@ -311,12 +366,14 @@ func _create_camera() -> void:
     battle_camera = Camera3D.new()
     battle_camera.name = "FreeFlightCamera"
     battle_camera.position = Vector3(0, 27, 68)
-    battle_camera.rotation_degrees = Vector3(-23, 0, 0)
-    battle_camera.current = true
     battle_camera.fov = 66
     battle_camera.near = 0.08
     battle_camera.far = 520.0
     add_child(battle_camera)
+    # Use a target point rather than a hard-coded Euler angle: this keeps the
+    # camera looking at the playable map on every device and aspect ratio.
+    battle_camera.look_at(Vector3(0, 0, 0), Vector3.UP)
+    battle_camera.current = true
     battle_camera.make_current()
 
 func _add_box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
