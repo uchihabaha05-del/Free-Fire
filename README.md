@@ -1,23 +1,32 @@
-# KYR FREE FIRE — Battle Arena
+# MASS BATTLE
 
-A mobile-friendly browser battle-arena prototype with a separate 3D arena mode.
+A free, original Godot 4 prototype for large automatic army battles.
 
-## Play
-Open the GitHub Pages site: https://uchihabaha05-del.github.io/Free-Fire/
+## Run locally
+1. Install Godot 4.x: https://godotengine.org/download/
+2. Clone or download this repository.
+3. Open `project.godot` in Godot.
+4. Press F6/F5 or the Play button.
+5. Set the blue and red army sizes (1–10,000), choose battle speed, and press **START BATTLE**.
 
-## Features
-- Lobby with 3 selectable fighters and distinct character colors.
-- 2D solo battle against bots, with a shrinking safe zone.
-- Separate 3D arena mode with explorable locations, bots, loot and vehicles.
-- 12 weapons, health, armor, ammo, reload and pickups.
-- Mobile joystick and touch controls; keyboard controls on desktop.
-- Player profile with XP, levels, match statistics and win streaks.
-- Daily login reward and daily missions.
-- Easy, Normal and Hard bot difficulty settings; Hard mode adds elite opponents.
-- Persistent coins and progression using browser local storage.
-- PWA manifest and offline shell cache.
+## Prototype features
+- 3D arena with two opposing armies.
+- Up to 10,000 visible instances per side using Godot `MultiMeshInstance3D`.
+- Automatic group-based battle simulation.
+- Pause/resume, speed control, survivor count and winner display.
+- No paid assets, plugins, accounts, or network services.
 
-## Notes
-This is a local browser game prototype. Matches and bots run on the player's device; it is not online multiplayer. Progress is saved in the same browser/device when browser storage is available.
+## Current limitations
+This is an early technical prototype, not a finished mobile game. Combat is currently abstracted as group damage: soldiers are rendered as simple capsules and do not yet individually animate, pathfind, or fight with detailed physics. The 10,000-per-team setting is a development target, not a verified performance claim on phones.
 
-The project currently references third-party Free Fire character artwork and brand names. It is an independent prototype and is not affiliated with or endorsed by Garena. Do not publish or monetize it in an app store without the necessary rights; replace third-party artwork and branding with original assets first.
+## Roadmap
+1. Add original low-poly character models and basic animations.
+2. Add formations, movement, melee/ranged unit types and better combat logic.
+3. Add camera controls, replays, maps and mobile-friendly UI.
+4. Profile 1k/5k/10k per team on real Android and iPhone devices.
+5. Configure and test Android/iOS exports.
+
+## Technology
+- Godot Engine 4
+- GDScript
+- MultiMesh instancing
