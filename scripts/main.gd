@@ -530,6 +530,36 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
             break
     return actor
 
+func _apply_model_facing_correction(actor: Node3D) -> void:
+    # The supplied Hulk GLB is authored facing the opposite local forward axis.
+    # Godot look_at() points local -Z at the target, so compensate by 180 degrees.
+    if actor.name.begins_with("Hulk_"):
+        actor.rotate_y(PI)
+
+func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) -> void:
+    var skeleton_nodes := actor.find_children("*", "Skeleton3D", true, false)
+    for skeleton_node in skeleton_nodes:
+        var skeleton := skeleton_node as Skeleton3D
+        if skeleton == null:
+            continue
+        skeleton.reset_bone_poses()
+        for bone_index in range(skeleton.get_bone_count()):
+            var bone_name := skeleton.get_bone_name(bone_index).to_lower()
+            var side_phase := 0.0
+            if bone_name.contains("left") or bone_name.ends_with("_l") or bone_name.ends_with(".l"):
+                side_phase = PI
+            var angle := 0.0
+            var is_arm := bone_name.contains("arm") or bone_name.contains("shoulder")
+            var is_leg := bone_name.contains("thigh") or bone_name.contains("upleg") or bone_name.contains("leg")
+            if attacking and is_arm and (bone_name.contains("right") or bone_name.ends_with("_r") or bone_name.ends_with(".r")):
+                angle = -1.15
+            elif moving and is_arm:
+                angle = sin(phase + side_phase) * 0.62
+            elif moving and is_leg:
+                angle = sin(phase + side_phase) * 0.78
+            if absf(angle) > 0.001:
+                skeleton.set_bone_pose_rotation(bone_index, Quaternion(Vector3.RIGHT, angle))
+
 func _create_character_placeholder(character_name: String, side: int) -> Node3D:
     var actor := Node3D.new()
     var team_color := Color(0.16, 0.38, 0.95) if side < 0 else Color(0.88, 0.16, 0.12)
@@ -596,27 +626,33 @@ func _update_combat(delta: float) -> void:
                 actor.position.y = _height_approx(actor.position.x, actor.position.z)
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
                 _apply_model_facing_correction(actor)
+                _animate_rig(actor, true, false, battle_time * 9.0)
             else:
+                actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
+                _apply_model_facing_correction(actor)
                 var actor_id: int = actor.get_instance_id()
                 var data: Dictionary = unit_data.get(actor_id, {})
                 var cooldown := float(data.get("cooldown", 0.0)) - delta
+                var attack_timer := maxf(0.0, float(data.get("attack_timer", 0.0)) - delta)
                 if cooldown <= 0.0:
                     var enemy_id := nearest.get_instance_id()
                     var enemy_data: Dictionary = unit_data.get(enemy_id, {})
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
-                    var old_scale: Vector3 = actor.scale
-                    actor.scale = old_scale * 1.10
-                    var attack_tween := create_tween()
-                    attack_tween.tween_property(actor, "scale", old_scale, 0.16)
-                    _spawn_hit_effect(nearest.position + Vector3.UP * 1.2)
+                    attack_timer = 0.30
+                    _spawn_hit_effect(nearest.position + Vector3.UP * 12.0)
                     cooldown = 0.85
                     if float(enemy_data["health"]) <= 0.0:
                         enemies.erase(nearest)
                         unit_data.erase(enemy_id)
-                        nearest.queue_free()
+                        var death_tween := create_tween()
+                        death_tween.tween_property(nearest, "rotation:z", nearest.rotation.z + 1.25, 0.28)
+                        death_tween.parallel().tween_property(nearest, "scale", Vector3(0.01, 0.01, 0.01), 0.30)
+                        death_tween.tween_callback(nearest.queue_free)
                 data["cooldown"] = cooldown
+                data["attack_timer"] = attack_timer
                 unit_data[actor_id] = data
+                _animate_rig(actor, false, attack_timer > 0.0, battle_time * 9.0)
 
 func _spawn_hit_effect(hit_position: Vector3) -> void:
     var flash := MeshInstance3D.new()
