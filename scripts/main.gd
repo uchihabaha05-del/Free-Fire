@@ -419,8 +419,8 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     actor.name = "%s_Team_%s_%02d" % [character_name.replace(" ", ""), "Blue" if side < 0 else "Red", index]
     actor.position = Vector3(x, _height_approx(x, z), z)
     actor.scale = Vector3.ONE
-    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 12.0), -float(side) * 12.0), Vector3.UP)
     add_child(actor)
+    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 12.0), -float(side) * 12.0), Vector3.UP)
     return actor
 
 func _create_character_placeholder(character_name: String, side: int) -> Node3D:
