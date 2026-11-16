@@ -167,7 +167,7 @@ func _build_world() -> void:
     environment.tonemap_exposure = 1.18
     environment.fog_enabled = true
     environment.fog_light_color = Color(0.65, 0.68, 0.65)
-    environment.fog_density = 0.0022
+    environment.fog_density = 0.00045
     environment.fog_sky_affect = 0.5
     env.environment = environment
 
@@ -175,7 +175,7 @@ func _build_world() -> void:
     sun.rotation_degrees = Vector3(-48, -28, 0)
     sun.light_energy = 1.85
     sun.shadow_enabled = true
-    sun.directional_shadow_max_distance = 180.0
+    sun.directional_shadow_max_distance = 1200.0
     add_child(sun)
 
     _create_terrain()
