@@ -687,39 +687,104 @@ func _create_army(color: Color, side: int) -> MultiMeshInstance3D:
 func _make_soldier_mesh() -> Mesh:
     var surface := SurfaceTool.new()
     surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+
+    # Layered tactical silhouette: armored vest, webbing, helmet and reinforced limbs.
     var torso := CapsuleMesh.new()
     torso.radius = 0.22
-    torso.height = 0.92
-    torso.radial_segments = 8
-    torso.rings = 4
-    _append_part(surface, torso, Vector3(0, 1.05, 0), Vector3(0.88, 1.0, 0.58), Vector3.ZERO)
+    torso.height = 0.96
+    torso.radial_segments = 12
+    torso.rings = 6
+    _append_part(surface, torso, Vector3(0, 1.08, 0), Vector3(0.92, 1.0, 0.66), Vector3.ZERO)
+
     var head := SphereMesh.new()
     head.radius = 0.17
     head.height = 0.34
-    _append_part(surface, head, Vector3(0, 1.72, 0.015), Vector3.ONE, Vector3.ZERO)
+    head.radial_segments = 12
+    head.rings = 8
+    _append_part(surface, head, Vector3(0, 1.73, 0.015), Vector3.ONE, Vector3.ZERO)
+
     var helmet := SphereMesh.new()
-    helmet.radius = 0.19
-    helmet.height = 0.19
-    _append_part(surface, helmet, Vector3(0, 1.84, 0.015), Vector3(1.0, 0.58, 1.0), Vector3.ZERO)
+    helmet.radius = 0.20
+    helmet.height = 0.21
+    helmet.radial_segments = 12
+    helmet.rings = 6
+    _append_part(surface, helmet, Vector3(0, 1.86, 0.005), Vector3(1.0, 0.58, 1.0), Vector3.ZERO)
+    var helmet_rim := BoxMesh.new()
+    helmet_rim.size = Vector3(0.39, 0.045, 0.30)
+    _append_part(surface, helmet_rim, Vector3(0, 1.79, 0.10), Vector3.ONE, Vector3.ZERO)
+    var goggles := BoxMesh.new()
+    goggles.size = Vector3(0.30, 0.055, 0.035)
+    _append_part(surface, goggles, Vector3(0, 1.72, 0.17), Vector3.ONE, Vector3.ZERO)
+
+    var vest := BoxMesh.new()
+    vest.size = Vector3(0.48, 0.60, 0.16)
+    _append_part(surface, vest, Vector3(0, 1.14, 0.245), Vector3.ONE, Vector3.ZERO)
+    var chest_plate := BoxMesh.new()
+    chest_plate.size = Vector3(0.34, 0.22, 0.045)
+    _append_part(surface, chest_plate, Vector3(0, 1.28, 0.34), Vector3.ONE, Vector3.ZERO)
+    var belt := BoxMesh.new()
+    belt.size = Vector3(0.47, 0.10, 0.25)
+    _append_part(surface, belt, Vector3(0, 0.82, 0.02), Vector3.ONE, Vector3.ZERO)
+    var pouch := BoxMesh.new()
+    pouch.size = Vector3(0.13, 0.17, 0.12)
+    for side in [-1.0, 1.0]:
+        _append_part(surface, pouch, Vector3(side * 0.20, 0.91, 0.20), Vector3.ONE, Vector3.ZERO)
+        _append_part(surface, pouch, Vector3(side * 0.23, 1.27, 0.23), Vector3(0.9, 0.8, 0.8), Vector3.ZERO)
+
     var backpack := BoxMesh.new()
-    backpack.size = Vector3(0.28, 0.40, 0.18)
-    _append_part(surface, backpack, Vector3(0, 1.10, -0.22), Vector3.ONE, Vector3.ZERO)
+    backpack.size = Vector3(0.31, 0.43, 0.20)
+    _append_part(surface, backpack, Vector3(0, 1.12, -0.22), Vector3.ONE, Vector3.ZERO)
+    var shoulder := SphereMesh.new()
+    shoulder.radius = 0.17
+    shoulder.height = 0.25
+    for side in [-1.0, 1.0]:
+        _append_part(surface, shoulder, Vector3(side * 0.31, 1.42, 0), Vector3(1.0, 0.85, 1.0), Vector3(0, 0, side * -0.12))
+
     var limb := CapsuleMesh.new()
     limb.radius = 0.075
     limb.height = 0.62
-    limb.radial_segments = 6
-    _append_part(surface, limb, Vector3(-0.25, 1.10, 0.0), Vector3.ONE, Vector3(0, 0, -0.22))
-    _append_part(surface, limb, Vector3(0.25, 1.10, 0.0), Vector3.ONE, Vector3(0, 0, 0.22))
-    _append_part(surface, limb, Vector3(-0.12, 0.38, 0.0), Vector3(0.92, 1.1, 0.92), Vector3(0, 0, -0.08))
-    _append_part(surface, limb, Vector3(0.12, 0.38, 0.0), Vector3(0.92, 1.1, 0.92), Vector3(0, 0, 0.08))
+    limb.radial_segments = 10
+    limb.rings = 6
+    _append_part(surface, limb, Vector3(-0.27, 1.10, 0.0), Vector3(1.08, 1.0, 1.0), Vector3(0, 0, -0.22))
+    _append_part(surface, limb, Vector3(0.27, 1.10, 0.0), Vector3(1.08, 1.0, 1.0), Vector3(0, 0, 0.22))
+    var forearm := CapsuleMesh.new()
+    forearm.radius = 0.085
+    forearm.height = 0.40
+    _append_part(surface, forearm, Vector3(-0.34, 0.83, 0.10), Vector3.ONE, Vector3(0, 0, -0.16))
+    _append_part(surface, forearm, Vector3(0.34, 0.83, 0.10), Vector3.ONE, Vector3(0, 0, 0.16))
+    _append_part(surface, limb, Vector3(-0.12, 0.39, 0.0), Vector3(0.96, 1.12, 0.96), Vector3(0, 0, -0.08))
+    _append_part(surface, limb, Vector3(0.12, 0.39, 0.0), Vector3(0.96, 1.12, 0.96), Vector3(0, 0, 0.08))
+    var knee := SphereMesh.new()
+    knee.radius = 0.105
+    knee.height = 0.12
+    _append_part(surface, knee, Vector3(-0.12, 0.37, 0.13), Vector3(1.0, 0.8, 0.65), Vector3.ZERO)
+    _append_part(surface, knee, Vector3(0.12, 0.37, 0.13), Vector3(1.0, 0.8, 0.65), Vector3.ZERO)
+    var boot := BoxMesh.new()
+    boot.size = Vector3(0.23, 0.18, 0.40)
+    _append_part(surface, boot, Vector3(-0.12, 0.12, 0.12), Vector3.ONE, Vector3.ZERO)
+    _append_part(surface, boot, Vector3(0.12, 0.12, 0.12), Vector3.ONE, Vector3.ZERO)
+
+    # Detailed rifle silhouette with stock, receiver, barrel, grip and optic.
     var rifle := BoxMesh.new()
-    rifle.size = Vector3(0.09, 0.10, 0.76)
-    _append_part(surface, rifle, Vector3(0.19, 1.22, 0.36), Vector3.ONE, Vector3(-0.12, 0, 0))
+    rifle.size = Vector3(0.085, 0.105, 0.48)
+    _append_part(surface, rifle, Vector3(0.19, 1.22, 0.26), Vector3.ONE, Vector3(-0.12, 0, 0))
+    var stock := BoxMesh.new()
+    stock.size = Vector3(0.10, 0.12, 0.20)
+    _append_part(surface, stock, Vector3(0.19, 1.22, -0.08), Vector3.ONE, Vector3.ZERO)
     var barrel := CylinderMesh.new()
-    barrel.top_radius = 0.025
-    barrel.bottom_radius = 0.025
-    barrel.height = 0.34
-    _append_part(surface, barrel, Vector3(0.19, 1.23, 0.86), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
+    barrel.top_radius = 0.022
+    barrel.bottom_radius = 0.028
+    barrel.height = 0.42
+    _append_part(surface, barrel, Vector3(0.19, 1.23, 0.70), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
+    var grip := BoxMesh.new()
+    grip.size = Vector3(0.07, 0.18, 0.10)
+    _append_part(surface, grip, Vector3(0.19, 1.09, 0.30), Vector3.ONE, Vector3(-0.22, 0, 0))
+    var optic := CylinderMesh.new()
+    optic.top_radius = 0.035
+    optic.bottom_radius = 0.035
+    optic.height = 0.15
+    _append_part(surface, optic, Vector3(0.19, 1.31, 0.28), Vector3.ONE, Vector3(PI * 0.5, 0, 0))
+
     surface.generate_normals()
     return surface.commit()
 
