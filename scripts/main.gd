@@ -44,12 +44,15 @@ var b_character_option: OptionButton
 var touch_joy_id := -1
 var touch_joy_origin := Vector2.ZERO
 var touch_joy_vector := Vector2.ZERO
+var punch_player: AudioStreamPlayer
+var impact_player: AudioStreamPlayer
 
 var main_menu: Control
 var main_menu_layer: CanvasLayer
 
 func _ready() -> void:
     rng.randomize()
+    _create_combat_audio()
     _show_main_menu()
 
 func _show_main_menu() -> void:
@@ -290,38 +293,69 @@ func _add_rock_scatter() -> void:
     node.material_override = mat
     add_child(node)
 
+func _make_grass_clump_mesh() -> ArrayMesh:
+    # Three crossed, tapered blades per clump: visible from every camera angle.
+    var surface := SurfaceTool.new()
+    surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+    for blade_index in range(3):
+        var angle := float(blade_index) * PI / 3.0
+        var side := Vector3(cos(angle), 0.0, sin(angle)) * 0.16
+        var lean := Vector3(cos(angle + 0.9), 0.0, sin(angle + 0.9)) * 0.13
+        var base := Vector3.ZERO
+        var tip := Vector3(0.0, 1.0, 0.0) + lean
+        var left := base - side
+        var right := base + side
+        var middle := Vector3(0.0, 0.48, 0.0) + lean * 0.42
+        var middle_left := middle - side * 0.48
+        var middle_right := middle + side * 0.48
+        var dark := Color(0.22, 0.31, 0.12, 1.0)
+        var green := Color(0.48, 0.59, 0.23, 1.0)
+        var tip_color := Color(0.68, 0.70, 0.34, 1.0)
+        _grass_triangle(surface, left, middle_left, middle, dark, green, green)
+        _grass_triangle(surface, left, middle, tip, dark, green, tip_color)
+        _grass_triangle(surface, middle, middle_right, tip, green, green, tip_color)
+        _grass_triangle(surface, middle_right, right, tip, green, dark, tip_color)
+    surface.generate_normals()
+    return surface.commit()
+
+func _grass_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+    surface.set_color(ca)
+    surface.add_vertex(a)
+    surface.set_color(cb)
+    surface.add_vertex(b)
+    surface.set_color(cc)
+    surface.add_vertex(c)
+
 func _add_grass_scatter() -> void:
-    var blade := QuadMesh.new()
-    blade.size = Vector2(0.52, 0.95)
+    var grass_mesh := _make_grass_clump_mesh()
     var mm := MultiMesh.new()
     mm.transform_format = MultiMesh.TRANSFORM_3D
     mm.use_colors = true
-    mm.mesh = blade
+    mm.mesh = grass_mesh
     mm.instance_count = GRASS_COUNT
     for i in range(GRASS_COUNT):
-        var x := rng.randf_range(-980.0, 980.0)
-        var z := rng.randf_range(-980.0, 980.0)
-        if Vector2(x, z).length() > 990.0:
-            x *= 0.82
-            z *= 0.82
-        if absf(x) < 80.0 and absf(z) < 160.0:
-            x += signf(x if x != 0.0 else 1.0) * 120.0
-        var h := rng.randf_range(0.55, 1.35)
-        var pos := Vector3(x, _height_approx(x, z) + h * 0.5 - 0.04, z)
-        var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(rng.randf_range(0.8, 1.5), h, 1.0))
+        # Bias density toward the playable area so grass is visible in the battle camera.
+        var angle := rng.randf_range(0.0, TAU)
+        var radius := sqrt(rng.randf()) * 720.0
+        var x := cos(angle) * radius
+        var z := sin(angle) * radius
+        if absf(x) < 76.0 and absf(z) < 145.0:
+            x += signf(x if x != 0.0 else 1.0) * 96.0
+        var h := rng.randf_range(0.85, 2.0)
+        var width := rng.randf_range(0.75, 1.35)
+        var pos := Vector3(x, _height_approx(x, z) - 0.02, z)
+        var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(width, h, width))
         mm.set_instance_transform(i, Transform3D(basis, pos))
-        var g := rng.randf_range(0.72, 1.12)
-        mm.set_instance_color(i, Color(g * 0.82, g, g * 0.62))
+        var shade := rng.randf_range(0.78, 1.16)
+        mm.set_instance_color(i, Color(shade, shade * rng.randf_range(0.91, 1.04), shade * 0.78, 1.0))
     var node := MultiMeshInstance3D.new()
-    node.name = "DryGrass"
+    node.name = "RealisticGrassClumps"
     node.multimesh = mm
     var mat := StandardMaterial3D.new()
     mat.vertex_color_use_as_albedo = true
     mat.albedo_color = Color.WHITE
-    mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    mat.roughness = 0.94
     mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-    mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    mat.albedo_color.a = 0.94
     node.material_override = mat
     node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
     add_child(node)
@@ -528,6 +562,60 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     # Characters with imported animation clips use their authored skeletal motion.
     return actor
 
+func _create_combat_audio() -> void:
+    punch_player = AudioStreamPlayer.new()
+    punch_player.name = "PunchWhooshAudio"
+    punch_player.volume_db = -7.0
+    punch_player.stream = _make_sfx_stream(145.0, 0.16, 0.72, 0.0)
+    add_child(punch_player)
+    impact_player = AudioStreamPlayer.new()
+    impact_player.name = "ImpactThudAudio"
+    impact_player.volume_db = -5.0
+    impact_player.stream = _make_sfx_stream(72.0, 0.20, 0.88, 0.32)
+    add_child(impact_player)
+
+func _make_sfx_stream(base_frequency: float, duration: float, noise_mix: float, decay_power: float) -> AudioStreamWAV:
+    var sample_rate := 22050
+    var sample_count := int(sample_rate * duration)
+    var bytes := PackedByteArray()
+    bytes.resize(sample_count * 2)
+    for i in range(sample_count):
+        var t := float(i) / float(sample_rate)
+        var envelope := pow(maxf(0.0, 1.0 - t / duration), 1.7 + decay_power * 5.0)
+        var tone := sin(TAU * (base_frequency * t - 22.0 * t * t))
+        var noise := rng.randf_range(-1.0, 1.0)
+        var sample := clampf((tone * (1.0 - noise_mix) + noise * noise_mix) * envelope * 0.72, -1.0, 1.0)
+        bytes.encode_s16(i * 2, int(sample * 32767.0))
+    var stream := AudioStreamWAV.new()
+    stream.format = AudioStreamWAV.FORMAT_16_BITS
+    stream.mix_rate = sample_rate
+    stream.stereo = false
+    stream.data = bytes
+    return stream
+
+func _play_attack_sound() -> void:
+    if punch_player != null:
+        punch_player.play()
+
+func _play_impact_sound() -> void:
+    if impact_player != null:
+        impact_player.play()
+
+func _play_action_animation(actor: Node3D, action: String) -> bool:
+    var players := actor.find_children("*", "AnimationPlayer", true, false)
+    var terms: Array[String] = ["attack", "punch", "strike", "hit", "kick"] if action == "attack" else ["walk", "run"]
+    for player_node in players:
+        var player := player_node as AnimationPlayer
+        if player == null:
+            continue
+        for clip in player.get_animation_list():
+            var lower := clip.to_lower()
+            for term in terms:
+                if lower.contains(term):
+                    player.play(clip)
+                    return true
+    return false
+
 func _start_imported_animation(actor: Node3D) -> void:
     var players := actor.find_children("*", "AnimationPlayer", true, false)
     for player_node in players:
@@ -612,7 +700,8 @@ func _update_combat(delta: float) -> void:
                 actor.position.y = _height_approx(actor.position.x, actor.position.z)
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
                 _apply_model_facing_correction(actor)
-                _animate_rig(actor, true, false, battle_time * 9.0)
+                if not _play_action_animation(actor, "move"):
+                    _animate_rig(actor, true, false, battle_time * 9.0)
             else:
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
                 _apply_model_facing_correction(actor)
@@ -626,6 +715,9 @@ func _update_combat(delta: float) -> void:
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
                     attack_timer = 0.38
+                    _play_attack_sound()
+                    _play_action_animation(actor, "attack")
+                    _play_impact_sound()
                     # A physical step-in makes the strike happen at contact range;
                     # damage is never applied from across the arena.
                     actor.position += direction.normalized() * 1.4
@@ -640,7 +732,11 @@ func _update_combat(delta: float) -> void:
                 data["cooldown"] = cooldown
                 data["attack_timer"] = attack_timer
                 unit_data[actor_id] = data
-                _animate_rig(actor, false, attack_timer > 0.0, battle_time * 9.0)
+                if attack_timer > 0.0:
+                    if not _play_action_animation(actor, "attack"):
+                        _animate_rig(actor, false, true, battle_time * 9.0)
+                else:
+                    _animate_rig(actor, false, false, battle_time * 9.0)
 
 
 func _process(delta: float) -> void:
