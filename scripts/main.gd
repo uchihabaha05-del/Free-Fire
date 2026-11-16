@@ -509,9 +509,7 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
         var packed := load(model_path) as PackedScene
         if packed != null:
             actor = packed.instantiate() as Node3D
-    # Keep compatibility with a GLB copy if the model is later converted.
-    if actor == null and character_name == "Spider-Man":
-        if actor == null:
+    if actor == null:
         push_error("Character model failed to load: " + character_name + " — battle spawn skipped")
         return null
     var row := int(index / 5)
@@ -525,9 +523,27 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     add_child(actor)
     actor.look_at(Vector3(x, _height_approx(x, -float(side) * 130.0), -float(side) * 130.0), Vector3.UP)
     _apply_model_facing_correction(actor)
+    _start_imported_animation(actor)
 
-    # Character motion is driven by the runtime skeleton pose system below.
+    # Characters with imported animation clips use their authored skeletal motion.
     return actor
+
+func _start_imported_animation(actor: Node3D) -> void:
+    var players := actor.find_children("*", "AnimationPlayer", true, false)
+    for player_node in players:
+        var player := player_node as AnimationPlayer
+        if player == null:
+            continue
+        var animation_names := player.get_animation_list()
+        var chosen := ""
+        # Prefer the model's authored clip; skip editor/import reset tracks.
+        for animation_name in animation_names:
+            if animation_name != "RESET" and animation_name != "RESET-RESET":
+                chosen = animation_name
+                break
+        if chosen != "":
+            player.play(chosen)
+            return
 
 func _apply_model_facing_correction(actor: Node3D) -> void:
     # The supplied Hulk GLB is authored facing the opposite local forward axis.
@@ -536,6 +552,10 @@ func _apply_model_facing_correction(actor: Node3D) -> void:
         actor.rotate_y(PI)
 
 func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) -> void:
+    # Hulk's imported GLB animation is authored for its own 27-bone rig.
+    # Do not overwrite those keyed poses with generic procedural rotations.
+    if actor.name.begins_with("Hulk_"):
+        return
     var skeleton_nodes := actor.find_children("*", "Skeleton3D", true, false)
     for skeleton_node in skeleton_nodes:
         var skeleton := skeleton_node as Skeleton3D
