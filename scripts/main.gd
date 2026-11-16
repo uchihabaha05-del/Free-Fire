@@ -26,6 +26,11 @@ var a_spin: SpinBox
 var b_spin: SpinBox
 var speed_slider: HSlider
 var start_button: Button
+var battle_camera: Camera3D
+var camera_move := {"forward": false, "back": false, "left": false, "right": false, "up": false, "down": false}
+var camera_look_sensitivity := 0.0025
+var camera_flight_speed := 24.0
+var camera_drag_active := false
 
 func _ready() -> void:
     rng.randomize()
@@ -51,6 +56,10 @@ func _build_world() -> void:
     environment.ambient_light_energy = 0.65
     environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
     environment.tonemap_exposure = 1.05
+    environment.fog_enabled = true
+    environment.fog_light_color = Color(0.58, 0.64, 0.61)
+    environment.fog_density = 0.004
+    environment.fog_sky_affect = 0.45
     env.environment = environment
     add_child(env)
 
@@ -147,13 +156,15 @@ func _create_battlefield_details() -> void:
     _add_scatter(_make_crate_mesh(), 42, 38.0, 26.0, 0.0, Color(0.39, 0.29, 0.18), false)
 
 func _create_camera() -> void:
-    var camera := Camera3D.new()
-    camera.position = Vector3(0, 66, 78)
-    camera.rotation_degrees = Vector3(-42, 0, 0)
-    camera.current = true
-    camera.fov = 54
-    camera.far = 220.0
-    add_child(camera)
+    battle_camera = Camera3D.new()
+    battle_camera.name = "FreeFlightCamera"
+    battle_camera.position = Vector3(0, 66, 78)
+    battle_camera.rotation_degrees = Vector3(-42, 0, 0)
+    battle_camera.current = true
+    battle_camera.fov = 58
+    battle_camera.near = 0.08
+    battle_camera.far = 420.0
+    add_child(battle_camera)
 
 func _add_box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
     var node := MeshInstance3D.new()
@@ -298,6 +309,56 @@ func _build_ui() -> void:
     note.add_theme_font_size_override("font_size", 10)
     column.add_child(note)
 
+    var camera_title := _make_label("FREE-FLIGHT CAMERA")
+    camera_title.add_theme_color_override("font_color", Color(0.65, 0.85, 1.0))
+    column.add_child(camera_title)
+    var camera_help := Label.new()
+    camera_help.text = "Drag to look • WASD to fly • Q/E altitude"
+    camera_help.add_theme_font_size_override("font_size", 10)
+    column.add_child(camera_help)
+    _build_flight_controls(layer)
+
+func _build_flight_controls(layer: CanvasLayer) -> void:
+    var panel := PanelContainer.new()
+    panel.name = "FlightControls"
+    panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+    panel.offset_left = -224
+    panel.offset_top = -190
+    panel.offset_right = -14
+    panel.offset_bottom = -14
+    layer.add_child(panel)
+
+    var stack := VBoxContainer.new()
+    stack.add_theme_constant_override("separation", 4)
+    panel.add_child(stack)
+
+    var forward_row := HBoxContainer.new()
+    var spacer := Control.new()
+    spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    forward_row.add_child(spacer)
+    forward_row.add_child(_make_flight_button("▲", "forward"))
+    forward_row.add_child(_make_flight_button("UP", "up"))
+    stack.add_child(forward_row)
+
+    var middle_row := HBoxContainer.new()
+    middle_row.add_child(_make_flight_button("◀", "left"))
+    middle_row.add_child(_make_flight_button("▼", "back"))
+    middle_row.add_child(_make_flight_button("▶", "right"))
+    middle_row.add_child(_make_flight_button("DOWN", "down"))
+    stack.add_child(middle_row)
+
+func _make_flight_button(caption: String, action: String) -> Button:
+    var button := Button.new()
+    button.text = caption
+    button.custom_minimum_size = Vector2(48, 48)
+    button.button_down.connect(func() -> void:
+        camera_move[action] = true
+    )
+    button.button_up.connect(func() -> void:
+        camera_move[action] = false
+    )
+    return button
+
 func _make_label(value: String) -> Label:
     var label := Label.new()
     label.text = value
@@ -426,6 +487,7 @@ func _apply_visible_counts() -> void:
     team_b_mesh.multimesh.visible_instance_count = team_b_alive
 
 func _process(delta: float) -> void:
+    _update_flight_camera(delta)
     if not battle_running:
         return
     battle_time += delta * battle_speed
@@ -461,3 +523,46 @@ func _refresh_ui() -> void:
         status_label.text = "BLUE: %d / %d     RED: %d / %d\nTime: %.1fs" % [
             team_a_alive, team_a_count, team_b_alive, team_b_count, battle_time
         ]
+
+func _update_flight_camera(delta: float) -> void:
+    if battle_camera == null:
+        return
+    var move := Vector3.ZERO
+    if camera_move["forward"] or Input.is_key_pressed(KEY_W):
+        move -= battle_camera.global_basis.z
+    if camera_move["back"] or Input.is_key_pressed(KEY_S):
+        move += battle_camera.global_basis.z
+    if camera_move["right"] or Input.is_key_pressed(KEY_D):
+        move += battle_camera.global_basis.x
+    if camera_move["left"] or Input.is_key_pressed(KEY_A):
+        move -= battle_camera.global_basis.x
+    if camera_move["up"] or Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_SPACE):
+        move += Vector3.UP
+    if camera_move["down"] or Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_CTRL):
+        move -= Vector3.UP
+    if move.length_squared() > 0.0:
+        var boost := 2.5 if Input.is_key_pressed(KEY_SHIFT) else 1.0
+        battle_camera.global_position += move.normalized() * camera_flight_speed * boost * delta
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_RIGHT:
+            camera_drag_active = event.pressed
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            battle_camera.fov = maxf(28.0, battle_camera.fov - 3.0)
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            battle_camera.fov = minf(82.0, battle_camera.fov + 3.0)
+    elif event is InputEventMouseMotion and camera_drag_active:
+        _rotate_flight_camera(event.relative)
+    elif event is InputEventScreenDrag:
+        _rotate_flight_camera(event.relative)
+
+func _rotate_flight_camera(relative: Vector2) -> void:
+    if battle_camera == null:
+        return
+    battle_camera.rotation.y -= relative.x * camera_look_sensitivity
+    battle_camera.rotation.x = clampf(
+        battle_camera.rotation.x - relative.y * camera_look_sensitivity,
+        deg_to_rad(-88.0),
+        deg_to_rad(88.0)
+    )
