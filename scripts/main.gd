@@ -92,7 +92,11 @@ func _create_bootstrap_world() -> void:
     _create_camera()
 
 func _build_world() -> void:
-    var env := WorldEnvironment.new()
+    var env := get_node_or_null("WorldEnvironment") as WorldEnvironment
+    if env == null:
+        env = WorldEnvironment.new()
+        env.name = "WorldEnvironment"
+        add_child(env)
     var environment := Environment.new()
     environment.background_mode = Environment.BG_SKY
     var sky := Sky.new()
@@ -113,7 +117,6 @@ func _build_world() -> void:
     environment.fog_density = 0.0022
     environment.fog_sky_affect = 0.5
     env.environment = environment
-    add_child(env)
 
     var sun := DirectionalLight3D.new()
     sun.rotation_degrees = Vector3(-48, -28, 0)
