@@ -42,6 +42,23 @@ jobs:
           unzip -oq "$ARCHIVE" -d "$RUNNER_TEMP/spidey-model"
           test -s "$RUNNER_TEMP/spidey-model/SpideyMesh.dae"
           test -s "$RUNNER_TEMP/spidey-model/Spidey512.png"
+          # COLLADA bone display names contain ':' in the source file. Godot 4
+          # rejects ':' and '/' in Skeleton3D bone names; the JOINT sid and
+          # skin Name_array already use underscore-safe identifiers.
+          python3 - "$RUNNER_TEMP/spidey-model/SpideyMesh.dae" <<'PY'
+          import re, sys
+          path = sys.argv[1]
+          data = open(path, encoding="utf-8").read()
+          data, count = re.subn(
+              r'(\\bname=")([^"]*)(")',
+              lambda m: m.group(1) + re.sub(r"[:/]", "_", m.group(2)) + m.group(3),
+              data,
+          )
+          if count == 0:
+              raise SystemExit("No COLLADA name attributes found to normalize")
+          open(path, "w", encoding="utf-8").write(data)
+          print(f"Normalized {count} COLLADA name attributes for Godot Skeleton3D")
+          PY
           cp "$RUNNER_TEMP/spidey-model/SpideyMesh.dae" assets/characters/SpideyMesh.dae
           cp "$RUNNER_TEMP/spidey-model/Spidey512.png" assets/characters/Spidey512.png
           echo "Installed Spider-Man COLLADA model and texture:"
@@ -116,8 +133,15 @@ jobs:
             -alias androiddebugkey -keyalg RSA -keysize 2048 \
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Import project resources
-        run: godot --headless --editor --path . --import
+      - name: Import project resources (fail on importer errors)
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --path . --import 2>&1 | tee resource-import.log
+          if grep -E "ERROR:" resource-import.log; then
+            echo "Godot reported resource importer errors; refusing to export APK."
+            exit 1
+          fi
 
       - name: Configure Godot Android export settings
         shell: bash
