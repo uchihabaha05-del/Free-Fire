@@ -612,7 +612,9 @@ func _play_action_animation(actor: Node3D, action: String) -> bool:
             var lower := clip.to_lower()
             for term in terms:
                 if lower.contains(term):
-                    player.play(clip)
+                    # Avoid restarting the same animation every frame.
+                    if player.current_animation != clip or not player.is_playing():
+                        player.play(clip)
                     return true
     return false
 
@@ -640,10 +642,7 @@ func _apply_model_facing_correction(actor: Node3D) -> void:
         actor.rotate_y(PI)
 
 func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) -> void:
-    # Hulk's imported GLB animation is authored for its own 27-bone rig.
-    # Do not overwrite those keyed poses with generic procedural rotations.
-    if actor.name.begins_with("Hulk_"):
-        return
+    # Procedural strike pose is a fallback when no authored attack clip exists.
     var skeleton_nodes := actor.find_children("*", "Skeleton3D", true, false)
     for skeleton_node in skeleton_nodes:
         var skeleton := skeleton_node as Skeleton3D
