@@ -101,17 +101,6 @@ jobs:
             -alias androiddebugkey -keyalg RSA -keysize 2048 \
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Download licensed rigged soldier prototype
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p assets/characters
-          curl --fail --location --retry 3 \
-            "https://models.codelove.in/models/military-male-03.glb" \
-            --output assets/characters/male_soldier_03.glb
-          test -s assets/characters/male_soldier_03.glb
-          test "$(stat -c%s assets/characters/male_soldier_03.glb)" -gt 500000
-
       - name: Import project resources
         run: godot --headless --editor --path . --import
 
