@@ -1,39 +1,18 @@
 # MASS BATTLE character models
 
-The character picker supports Godot-importable COLLADA (.dae) and GLB scenes.
+Only the two models supplied for this project are selectable.
 
-## Spider-Man model
+## Spider-Man
 
-The source archive is stored at `assets/assets/SpideyMesh.zip`. The Android GitHub Actions workflow extracts its contents into this folder before Godot imports the project:
+- Source archive: `assets/assets/SpideyMesh.zip`
+- Imported by the Android workflow into `res://assets/characters/SpideyMesh.dae`
+- Texture: `Spidey512.png`
+- The COLLADA model contains a rig; the game applies runtime skeleton poses for locomotion and attacks.
 
-- `SpideyMesh.dae` — skinned Spider-Man mesh
-- `Spidey512.png` — referenced texture
+## Hulk
 
-Both files are placed together so the COLLADA texture reference resolves correctly.
+- Source model: `assets/characters/b337594dc560b6dd1d13c8c4d744eef9.glb`
+- Rigged GLB with 27 joints and embedded PBR textures.
+- The game applies runtime skeleton poses and a model-specific facing correction.
 
-The game loads `res://assets/characters/SpideyMesh.dae` for Spider-Man and falls back to `spider_man.glb` if the DAE scene cannot be loaded.
-
-## Hulk model
-
-The supplied Hulk model is a rigged GLB with 27 joints, one animation and embedded PBR textures (base color, normal, and metallic/roughness). The game is configured to load it from:
-
-- `hulk.glb`
-
-Place the uploaded GLB at `assets/characters/hulk.glb`. No separate PNG texture files are required because the GLB already embeds its material textures. The game now attempts to play the first imported AnimationPlayer clip for loaded character models.
-
-## Other heroes
-
-The character picker can load these GLB files when supplied:
-
-- thor.glb
-- captain_america.glb
-- iron_man.glb
-- thanos.glb
-- doctor_strange.glb
-- black_panther.glb
-- deadpool.glb
-- wolverine.glb
-
-Use rigged, game-ready models. Keep each model's license and attribution file beside the model. Only add models you have permission to use and redistribute in this project.
-
-Until a matching model file is present, the game displays a clearly marked temporary placeholder. The placeholder is not an official Marvel design and is not intended to look like the original character.
+No placeholder soldiers or unprovided heroes are added to the character picker. If either supplied model fails to load, that spawn is skipped and an error is logged instead of substituting a different character.
