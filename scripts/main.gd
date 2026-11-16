@@ -45,16 +45,33 @@ var hulk: Node3D
 var hulk_attack_timer := 0.0
 var hulk_motion_time := 0.0
 var soldier_preview_nodes: Array[Node3D] = []
+const CHARACTER_NAMES := ["Spider-Man", "Hulk", "Thor", "Captain America", "Iron Man", "Thanos", "Doctor Strange", "Black Panther", "Deadpool", "Wolverine"]
+const CHARACTER_MODELS := {
+    "Spider-Man": "res://assets/characters/spider_man.glb",
+    "Hulk": "res://assets/characters/hulk.glb",
+    "Thor": "res://assets/characters/thor.glb",
+    "Captain America": "res://assets/characters/captain_america.glb",
+    "Iron Man": "res://assets/characters/iron_man.glb",
+    "Thanos": "res://assets/characters/thanos.glb",
+    "Doctor Strange": "res://assets/characters/doctor_strange.glb",
+    "Black Panther": "res://assets/characters/black_panther.glb",
+    "Deadpool": "res://assets/characters/deadpool.glb",
+    "Wolverine": "res://assets/characters/wolverine.glb"
+}
+var team_a_units: Array[Node3D] = []
+var team_b_units: Array[Node3D] = []
+var unit_data: Dictionary = {}
+var a_character_option: OptionButton
+var b_character_option: OptionButton
+var touch_joy_id := -1
+var touch_joy_origin := Vector2.ZERO
+var touch_joy_vector := Vector2.ZERO
 
 func _ready() -> void:
     rng.randomize()
     _build_world()
+    _create_camera()
     _build_ui()
-    _setup_armies()
-    _create_soldier_previews()
-    _create_iron_man()
-    _create_hulk()
-    _apply_visible_counts()
     _refresh_ui()
 
 func _build_world() -> void:
@@ -70,10 +87,10 @@ func _build_world() -> void:
     sky.sky_material = sky_material
     environment.sky = sky
     environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-    environment.ambient_light_energy = 0.82
+    environment.ambient_light_energy = 1.25
     environment.reflected_light_source = Environment.REFLECTION_SOURCE_BG
     environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
-    environment.tonemap_exposure = 1.0
+    environment.tonemap_exposure = 1.18
     environment.fog_enabled = true
     environment.fog_light_color = Color(0.65, 0.68, 0.65)
     environment.fog_density = 0.0022
@@ -83,7 +100,7 @@ func _build_world() -> void:
 
     var sun := DirectionalLight3D.new()
     sun.rotation_degrees = Vector3(-48, -28, 0)
-    sun.light_energy = 1.35
+    sun.light_energy = 1.85
     sun.shadow_enabled = true
     sun.directional_shadow_max_distance = 180.0
     add_child(sun)
@@ -129,6 +146,7 @@ func _create_terrain() -> void:
     terrain.mesh = surface.commit()
     var material := StandardMaterial3D.new()
     material.vertex_color_use_as_albedo = true
+    material.albedo_color = Color.WHITE
     material.roughness = 1.0
     material.uv1_scale = Vector3(18.0, 18.0, 1.0)
     terrain.material_override = material
@@ -138,9 +156,9 @@ func _create_terrain() -> void:
 func _terrain_vertex(surface: SurfaceTool, point: Vector3, uv: Vector2, noise: FastNoiseLite) -> void:
     var patch := noise.get_noise_2d(point.x * 0.055 + 170.0, point.z * 0.055 - 90.0)
     var moisture := noise.get_noise_2d(point.x * 0.025 - 300.0, point.z * 0.025 + 200.0)
-    var dirt := Color(0.39, 0.32, 0.23)
-    var dry_grass := Color(0.34, 0.39, 0.22)
-    var dusty := Color(0.56, 0.51, 0.39)
+    var dirt := Color(0.52, 0.43, 0.30)
+    var dry_grass := Color(0.42, 0.50, 0.29)
+    var dusty := Color(0.66, 0.59, 0.45)
     var color := dirt.lerp(dry_grass, clampf((moisture + 0.35) * 0.85, 0.0, 0.72))
     color = color.lerp(dusty, clampf((patch - 0.25) * 0.32, 0.0, 0.22))
     surface.set_color(color)
@@ -272,8 +290,8 @@ func _height_approx(x: float, z: float) -> float:
 func _create_camera() -> void:
     battle_camera = Camera3D.new()
     battle_camera.name = "FreeFlightCamera"
-    battle_camera.position = Vector3(0, 29, 88)
-    battle_camera.rotation_degrees = Vector3(-17, 0, 0)
+    battle_camera.position = Vector3(0, 27, 68)
+    battle_camera.rotation_degrees = Vector3(-23, 0, 0)
     battle_camera.current = true
     battle_camera.fov = 66
     battle_camera.near = 0.08
@@ -558,104 +576,50 @@ func _build_ui() -> void:
     var layer := CanvasLayer.new()
     layer.name = "GameUI"
     add_child(layer)
-
     var panel := PanelContainer.new()
     panel.position = Vector2(14, 14)
-    panel.custom_minimum_size = Vector2(270, 0)
+    panel.custom_minimum_size = Vector2(290, 0)
     layer.add_child(panel)
     var column := VBoxContainer.new()
     column.add_theme_constant_override("separation", 5)
     panel.add_child(column)
-
     var title := Label.new()
     title.text = "MASS BATTLE"
-    title.add_theme_font_size_override("font_size", 23)
+    title.add_theme_font_size_override("font_size", 22)
     column.add_child(title)
     var subtitle := Label.new()
-    subtitle.text = "WASTELAND • REAL-TIME BATTLE"
+    subtitle.text = "CHOOSE HEROES • BUILD YOUR TEAMS"
     subtitle.add_theme_font_size_override("font_size", 9)
     column.add_child(subtitle)
     column.add_child(HSeparator.new())
-
-    column.add_child(_make_label("BLUE ARMY — SOLDIERS"))
-    a_spin = _make_spin(500)
+    column.add_child(_make_label("BLUE TEAM — CHARACTER"))
+    a_character_option = _make_character_option("Iron Man")
+    column.add_child(a_character_option)
+    column.add_child(_make_label("BLUE TEAM — NUMBER OF CHARACTERS"))
+    a_spin = _make_spin(3)
     column.add_child(a_spin)
-    column.add_child(_make_label("RED ARMY — SOLDIERS"))
-    b_spin = _make_spin(500)
+    column.add_child(_make_label("RED TEAM — CHARACTER"))
+    b_character_option = _make_character_option("Hulk")
+    column.add_child(b_character_option)
+    column.add_child(_make_label("RED TEAM — NUMBER OF CHARACTERS"))
+    b_spin = _make_spin(3)
     column.add_child(b_spin)
-
-    var speed_row := HBoxContainer.new()
-    var speed_text := Label.new()
-    speed_text.text = "Battle speed"
-    speed_row.add_child(speed_text)
-    speed_slider = HSlider.new()
-    speed_slider.min_value = 0.25
-    speed_slider.max_value = 4.0
-    speed_slider.step = 0.25
-    speed_slider.value = 1.0
-    speed_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    speed_slider.value_changed.connect(func(value: float) -> void: battle_speed = value)
-    speed_row.add_child(speed_slider)
-    column.add_child(speed_row)
-
     status_label = Label.new()
-    status_label.text = "Ready"
-    status_label.add_theme_font_size_override("font_size", 12)
+    status_label.add_theme_font_size_override("font_size", 11)
     column.add_child(status_label)
-
     start_button = Button.new()
     start_button.text = "START BATTLE"
-    start_button.custom_minimum_size.y = 38
+    start_button.custom_minimum_size.y = 40
     start_button.pressed.connect(_start_battle)
     column.add_child(start_button)
-    var reset_button := Button.new()
-    reset_button.text = "RESET ARMIES"
-    reset_button.pressed.connect(_reset_battle)
-    column.add_child(reset_button)
 
-    var camera_title := _make_label("FREE-FLIGHT CAMERA")
-    camera_title.add_theme_color_override("font_color", Color(0.65, 0.85, 1.0))
-    column.add_child(camera_title)
-    var camera_help := Label.new()
-    camera_help.text = "Swipe to look • WASD / buttons to fly\nQ/E or DOWN/UP for altitude"
-    camera_help.add_theme_font_size_override("font_size", 9)
-    column.add_child(camera_help)
-    _build_flight_controls(layer)
-
-func _build_flight_controls(layer: CanvasLayer) -> void:
-    var panel := PanelContainer.new()
-    panel.name = "FlightControls"
-    panel.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-    panel.offset_left = -214
-    panel.offset_top = -150
-    panel.offset_right = -10
-    panel.offset_bottom = -10
-    layer.add_child(panel)
-    var stack := VBoxContainer.new()
-    stack.add_theme_constant_override("separation", 3)
-    panel.add_child(stack)
-
-    var forward_row := HBoxContainer.new()
-    var spacer := Control.new()
-    spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    forward_row.add_child(spacer)
-    forward_row.add_child(_make_flight_button("▲", "forward"))
-    forward_row.add_child(_make_flight_button("UP", "up"))
-    stack.add_child(forward_row)
-    var middle_row := HBoxContainer.new()
-    middle_row.add_child(_make_flight_button("◀", "left"))
-    middle_row.add_child(_make_flight_button("▼", "back"))
-    middle_row.add_child(_make_flight_button("▶", "right"))
-    middle_row.add_child(_make_flight_button("DOWN", "down"))
-    stack.add_child(middle_row)
-
-func _make_flight_button(caption: String, action: String) -> Button:
-    var button := Button.new()
-    button.text = caption
-    button.custom_minimum_size = Vector2(43, 43)
-    button.button_down.connect(func() -> void: camera_move[action] = true)
-    button.button_up.connect(func() -> void: camera_move[action] = false)
-    return button
+func _make_character_option(selected_name: String) -> OptionButton:
+    var option := OptionButton.new()
+    option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    for character_name in CHARACTER_NAMES:
+        option.add_item(character_name)
+    option.select(CHARACTER_NAMES.find(selected_name))
+    return option
 
 func _make_label(value: String) -> Label:
     var label := Label.new()
@@ -666,10 +630,10 @@ func _make_label(value: String) -> Label:
 func _make_spin(initial: int) -> SpinBox:
     var spin := SpinBox.new()
     spin.min_value = 1
-    spin.max_value = MAX_UNITS
-    spin.step = 50
+    spin.max_value = 50
+    spin.step = 1
     spin.value = initial
-    spin.custom_minimum_size.x = 220
+    spin.custom_minimum_size.x = 250
     return spin
 
 func _create_soldier_previews() -> void:
@@ -846,60 +810,165 @@ func _append_part(surface: SurfaceTool, mesh: Mesh, position: Vector3, scale: Ve
     surface.append_from(mesh, 0, transform)
 
 func _start_battle() -> void:
-    if battle_running:
-        battle_running = false
-        start_button.text = "RESUME BATTLE"
-        return
-    if team_a_alive <= 0 or team_b_alive <= 0:
-        _reset_battle()
-    else:
-        team_a_count = clampi(int(a_spin.value), 1, MAX_UNITS)
-        team_b_count = clampi(int(b_spin.value), 1, MAX_UNITS)
-        if battle_time == 0.0:
-            team_a_alive = team_a_count
-            team_b_alive = team_b_count
-            _apply_visible_counts()
+    _clear_units()
+    battle_time = 0.0
+    team_a_count = clampi(int(a_spin.value), 1, 50)
+    team_b_count = clampi(int(b_spin.value), 1, 50)
+    team_a_alive = team_a_count
+    team_b_alive = team_b_count
+    _spawn_team(CHARACTER_NAMES[a_character_option.selected], -1, team_a_count)
+    _spawn_team(CHARACTER_NAMES[b_character_option.selected], 1, team_b_count)
     battle_running = true
-    start_button.text = "PAUSE BATTLE"
+    start_button.text = "RESTART BATTLE"
     _refresh_ui()
 
 func _reset_battle() -> void:
     battle_running = false
+    _clear_units()
     battle_time = 0.0
-    team_a_count = clampi(int(a_spin.value), 1, MAX_UNITS)
-    team_b_count = clampi(int(b_spin.value), 1, MAX_UNITS)
-    team_a_alive = team_a_count
-    team_b_alive = team_b_count
+    team_a_alive = 0
+    team_b_alive = 0
     start_button.text = "START BATTLE"
-    _apply_visible_counts()
     _refresh_ui()
 
+func _clear_units() -> void:
+    for actor in team_a_units + team_b_units:
+        if is_instance_valid(actor):
+            actor.queue_free()
+    team_a_units.clear()
+    team_b_units.clear()
+    unit_data.clear()
+
+func _spawn_team(character_name: String, side: int, amount: int) -> void:
+    for i in range(amount):
+        var actor := _spawn_character(character_name, side, i, amount)
+        if actor == null:
+            continue
+        if side < 0:
+            team_a_units.append(actor)
+        else:
+            team_b_units.append(actor)
+        unit_data[actor.get_instance_id()] = {"health": 100.0, "cooldown": rng.randf_range(0.1, 0.8), "team": side}
+
+func _spawn_character(character_name: String, side: int, index: int, amount: int) -> Node3D:
+    var actor: Node3D
+    var model_path: String = CHARACTER_MODELS.get(character_name, "")
+    if model_path != "" and ResourceLoader.exists(model_path):
+        var packed := load(model_path) as PackedScene
+        if packed != null:
+            actor = packed.instantiate() as Node3D
+    if actor == null:
+        actor = _create_character_placeholder(character_name, side)
+    var row := int(index / 5)
+    var col := index % 5
+    var spread := minf(float(amount), 5.0)
+    var x := (float(col) - (spread - 1.0) * 0.5) * 2.2
+    var z := float(side) * (12.0 + float(row) * 2.4)
+    actor.name = "%s_Team_%s_%02d" % [character_name.replace(" ", ""), "Blue" if side < 0 else "Red", index]
+    actor.position = Vector3(x, _height_approx(x, z), z)
+    actor.scale = Vector3.ONE
+    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 12.0), -float(side) * 12.0), Vector3.UP)
+    add_child(actor)
+    return actor
+
+func _create_character_placeholder(character_name: String, side: int) -> Node3D:
+    var actor := Node3D.new()
+    var team_color := Color(0.16, 0.38, 0.95) if side < 0 else Color(0.88, 0.16, 0.12)
+    var body_material := StandardMaterial3D.new()
+    body_material.albedo_color = team_color
+    body_material.roughness = 0.58
+    var body := MeshInstance3D.new()
+    var torso := CapsuleMesh.new()
+    torso.radius = 0.42
+    torso.height = 1.35
+    torso.radial_segments = 20
+    torso.rings = 10
+    body.mesh = torso
+    body.position.y = 1.05
+    body.material_override = body_material
+    actor.add_child(body)
+    var head := MeshInstance3D.new()
+    var head_mesh := SphereMesh.new()
+    head_mesh.radius = 0.31
+    head_mesh.height = 0.62
+    head_mesh.radial_segments = 20
+    head_mesh.rings = 12
+    head.mesh = head_mesh
+    head.position.y = 1.95
+    head.material_override = body_material
+    actor.add_child(head)
+    var label := Label3D.new()
+    label.text = character_name.to_upper() + " • MODEL NEEDED"
+    label.position.y = 2.55
+    label.font_size = 24
+    label.modulate = Color(1.0, 0.9, 0.65)
+    label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+    actor.add_child(label)
+    return actor
+
 func _apply_visible_counts() -> void:
-    team_a_mesh.multimesh.visible_instance_count = team_a_alive
-    team_b_mesh.multimesh.visible_instance_count = team_b_alive
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
+
+func _update_combat(delta: float) -> void:
+    for is_blue in [true, false]:
+        var allies: Array[Node3D] = team_a_units if is_blue else team_b_units
+        var enemies: Array[Node3D] = team_b_units if is_blue else team_a_units
+        for actor in allies.duplicate():
+            if not is_instance_valid(actor):
+                allies.erase(actor)
+                continue
+            if enemies.is_empty():
+                break
+            var nearest: Node3D = null
+            var nearest_distance := INF
+            for enemy in enemies:
+                if not is_instance_valid(enemy):
+                    continue
+                var distance := Vector2(actor.position.x - enemy.position.x, actor.position.z - enemy.position.z).length()
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    nearest = enemy
+            if nearest == null:
+                continue
+            var direction := Vector3(nearest.position.x - actor.position.x, 0.0, nearest.position.z - actor.position.z)
+            if nearest_distance > 2.0:
+                actor.position += direction.normalized() * 2.8 * delta
+                actor.position.y = _height_approx(actor.position.x, actor.position.z)
+                actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
+            else:
+                var actor_id := actor.get_instance_id()
+                var data: Dictionary = unit_data.get(actor_id, {})
+                var cooldown := float(data.get("cooldown", 0.0)) - delta
+                if cooldown <= 0.0:
+                    var enemy_id := nearest.get_instance_id()
+                    var enemy_data: Dictionary = unit_data.get(enemy_id, {})
+                    enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
+                    unit_data[enemy_id] = enemy_data
+                    cooldown = 0.85
+                    if float(enemy_data["health"]) <= 0.0:
+                        enemies.erase(nearest)
+                        unit_data.erase(enemy_id)
+                        nearest.queue_free()
+                data["cooldown"] = cooldown
+                unit_data[actor_id] = data
 
 func _process(delta: float) -> void:
     _update_flight_camera(delta)
-    _update_iron_man(delta)
-    _update_hulk(delta)
     if not battle_running:
         return
-    battle_time += delta * battle_speed
-    var a_power := sqrt(float(team_a_alive)) * 2.0
-    var b_power := sqrt(float(team_b_alive)) * 2.0
-    var damage_to_a := maxf(1.0, b_power * delta * battle_speed * 0.8)
-    var damage_to_b := maxf(1.0, a_power * delta * battle_speed * 0.8)
-    team_a_alive = maxi(0, team_a_alive - int(damage_to_a))
-    team_b_alive = maxi(0, team_b_alive - int(damage_to_b))
-    _apply_visible_counts()
+    battle_time += delta
+    _update_combat(delta)
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
     ui_refresh_timer += delta
-    if ui_refresh_timer >= 0.15:
+    if ui_refresh_timer >= 0.2:
         ui_refresh_timer = 0.0
         _refresh_ui()
-    if team_a_alive == 0 or team_b_alive == 0:
+    if team_a_units.is_empty() or team_b_units.is_empty():
         battle_running = false
-        start_button.text = "BATTLE FINISHED — RESET"
-        status_label.text = _winner_text()
+        start_button.text = "START NEW BATTLE"
+        _refresh_ui()
 
 func _winner_text() -> String:
     if team_a_alive > team_b_alive:
@@ -911,36 +980,40 @@ func _winner_text() -> String:
 func _refresh_ui() -> void:
     if status_label == null:
         return
-    if not battle_running and (team_a_alive == 0 or team_b_alive == 0):
-        status_label.text = _winner_text()
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
+    if not battle_running and battle_time > 0.0:
+        status_label.text = _winner_text() + "\nBlue: %d  •  Red: %d  •  %.1fs" % [team_a_alive, team_b_alive, battle_time]
     else:
-        status_label.text = "BLUE: %d / %d     RED: %d / %d\nTime: %.1fs" % [team_a_alive, team_a_count, team_b_alive, team_b_count, battle_time]
+        status_label.text = "BLUE: %d / %d     RED: %d / %d\nLeft joystick: move • Right swipe: look" % [team_a_alive, team_a_count, team_b_alive, team_b_count]
 
 func _update_flight_camera(delta: float) -> void:
     if battle_camera == null:
         return
     var move := Vector3.ZERO
-    if camera_move["forward"] or Input.is_key_pressed(KEY_W):
+    if touch_joy_vector.length() > 0.08:
+        move -= battle_camera.global_basis.z * touch_joy_vector.y
+        move += battle_camera.global_basis.x * touch_joy_vector.x
+    if Input.is_key_pressed(KEY_W):
         move -= battle_camera.global_basis.z
-    if camera_move["back"] or Input.is_key_pressed(KEY_S):
+    if Input.is_key_pressed(KEY_S):
         move += battle_camera.global_basis.z
-    if camera_move["right"] or Input.is_key_pressed(KEY_D):
+    if Input.is_key_pressed(KEY_D):
         move += battle_camera.global_basis.x
-    if camera_move["left"] or Input.is_key_pressed(KEY_A):
+    if Input.is_key_pressed(KEY_A):
         move -= battle_camera.global_basis.x
-    if camera_move["up"] or Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_SPACE):
+    if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_SPACE):
         move += Vector3.UP
-    if camera_move["down"] or Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_CTRL):
+    if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_CTRL):
         move -= Vector3.UP
     if move.length_squared() > 0.0:
-        var boost := 2.5 if Input.is_key_pressed(KEY_SHIFT) else 1.0
-        battle_camera.global_position += move.normalized() * camera_flight_speed * boost * delta
+        battle_camera.global_position += move.normalized() * camera_flight_speed * delta
     var pos := battle_camera.global_position
     var radius := Vector2(pos.x, pos.z).length()
     if radius > MAP_RADIUS - 3.0:
-        var scale := (MAP_RADIUS - 3.0) / radius
-        pos.x *= scale
-        pos.z *= scale
+        var factor := (MAP_RADIUS - 3.0) / radius
+        pos.x *= factor
+        pos.z *= factor
     pos.y = clampf(pos.y, _height_approx(pos.x, pos.z) + 1.8, 250.0)
     battle_camera.global_position = pos
 
@@ -956,11 +1029,22 @@ func _unhandled_input(event: InputEvent) -> void:
         _rotate_flight_camera(event.relative)
     elif event is InputEventScreenTouch:
         if event.pressed:
-            touch_look_id = event.index
-        elif event.index == touch_look_id:
-            touch_look_id = -1
+            if event.position.x < get_viewport().get_visible_rect().size.x * 0.45:
+                touch_joy_id = event.index
+                touch_joy_origin = event.position
+                touch_joy_vector = Vector2.ZERO
+            else:
+                touch_look_id = event.index
+        else:
+            if event.index == touch_joy_id:
+                touch_joy_id = -1
+                touch_joy_vector = Vector2.ZERO
+            if event.index == touch_look_id:
+                touch_look_id = -1
     elif event is InputEventScreenDrag:
-        if touch_look_id == -1 or event.index == touch_look_id:
+        if event.index == touch_joy_id:
+            touch_joy_vector = ((event.position - touch_joy_origin) / 92.0).limit_length(1.0)
+        elif event.index == touch_look_id:
             _rotate_flight_camera(event.relative)
 
 func _rotate_flight_camera(relative: Vector2) -> void:
