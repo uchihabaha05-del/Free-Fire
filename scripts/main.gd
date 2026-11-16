@@ -11,10 +11,10 @@ const TERRAIN_SEGMENTS := 180
 const GRASS_COUNT := 12000
 const ROCK_COUNT := 520
 
-var team_a_count := 500
-var team_b_count := 500
-var team_a_alive := 500
-var team_b_alive := 500
+var team_a_count := 3
+var team_b_count := 3
+var team_a_alive := 0
+var team_b_alive := 0
 var battle_running := false
 var battle_time := 0.0
 var battle_speed := 1.0
