@@ -70,7 +70,6 @@ var touch_joy_vector := Vector2.ZERO
 func _ready() -> void:
     rng.randomize()
     _build_world()
-    _create_camera()
     _build_ui()
     _refresh_ui()
 
