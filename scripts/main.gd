@@ -520,14 +520,7 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     actor.look_at(Vector3(x, _height_approx(x, -float(side) * 130.0), -float(side) * 130.0), Vector3.UP)
     _apply_model_facing_correction(actor)
 
-    # Play the first imported rig animation when the model provides one.
-    var animation_players := actor.find_children("*", "AnimationPlayer", true, false)
-    for animation_node in animation_players:
-        var animation_player := animation_node as AnimationPlayer
-        var animation_names := animation_player.get_animation_list()
-        if not animation_names.is_empty():
-            animation_player.play(animation_names[0])
-            break
+    # Character motion is driven by the runtime skeleton pose system below.
     return actor
 
 func _apply_model_facing_correction(actor: Node3D) -> void:
