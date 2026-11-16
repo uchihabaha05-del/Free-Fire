@@ -34,7 +34,7 @@ var touch_look_id := -1
 const CHARACTER_NAMES := ["Spider-Man", "Hulk", "Thor", "Captain America", "Iron Man", "Thanos", "Doctor Strange", "Black Panther", "Deadpool", "Wolverine"]
 const CHARACTER_MODELS := {
     "Spider-Man": "res://assets/characters/SpideyMesh.dae",
-    "Hulk": "res://assets/characters/hulk.glb",
+    "Hulk": "res://assets/characters/b337594dc560b6dd1d13c8c4d744eef9.glb",
     "Thor": "res://assets/characters/thor.glb",
     "Captain America": "res://assets/characters/captain_america.glb",
     "Iron Man": "res://assets/characters/iron_man.glb",
