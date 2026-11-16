@@ -28,7 +28,7 @@ var start_button: Button
 var battle_camera: Camera3D
 var camera_move := {"forward": false, "back": false, "left": false, "right": false, "up": false, "down": false}
 var camera_look_sensitivity := 0.0025
-var camera_flight_speed := 280.0
+var camera_flight_speed := 150.0
 var camera_drag_active := false
 var touch_look_id := -1
 const CHARACTER_NAMES := ["Spider-Man", "Hulk"]
@@ -363,8 +363,8 @@ func _height_approx(x: float, z: float) -> float:
 func _create_camera() -> void:
     battle_camera = Camera3D.new()
     battle_camera.name = "FreeFlightCamera"
-    battle_camera.position = Vector3(0, 190, 720)
-    battle_camera.fov = 66
+    battle_camera.position = Vector3(0, 105, 340)
+    battle_camera.fov = 58
     battle_camera.near = 0.08
     battle_camera.far = 6200.0
     add_child(battle_camera)
@@ -516,7 +516,7 @@ func _spawn_character(character_name: String, side: int, index: int, amount: int
     var col := index % 5
     var spread := minf(float(amount), 5.0)
     var x := (float(col) - (spread - 1.0) * 0.5) * 22.0
-    var z := float(side) * (130.0 + float(row) * 24.0)
+    var z := float(side) * (62.0 + float(row) * 18.0)
     actor.name = "%s_Team_%s_%02d" % [character_name.replace(" ", ""), "Blue" if side < 0 else "Red", index]
     actor.position = Vector3(x, _height_approx(x, z), z)
     actor.scale = Vector3.ONE
@@ -607,8 +607,8 @@ func _update_combat(delta: float) -> void:
             if nearest == null:
                 continue
             var direction := Vector3(nearest.position.x - actor.position.x, 0.0, nearest.position.z - actor.position.z)
-            if nearest_distance > 12.0:
-                actor.position += direction.normalized() * 28.0 * delta
+            if nearest_distance > 4.2:
+                actor.position += direction.normalized() * 34.0 * delta
                 actor.position.y = _height_approx(actor.position.x, actor.position.z)
                 actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
                 _apply_model_facing_correction(actor)
@@ -625,8 +625,10 @@ func _update_combat(delta: float) -> void:
                     var enemy_data: Dictionary = unit_data.get(enemy_id, {})
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
-                    attack_timer = 0.30
-                    _spawn_hit_effect(nearest.position + Vector3.UP * 1.2)
+                    attack_timer = 0.38
+                    # A physical step-in makes the strike happen at contact range;
+                    # damage is never applied from across the arena.
+                    actor.position += direction.normalized() * 1.4
                     cooldown = 0.85
                     if float(enemy_data["health"]) <= 0.0:
                         enemies.erase(nearest)
@@ -640,26 +642,6 @@ func _update_combat(delta: float) -> void:
                 unit_data[actor_id] = data
                 _animate_rig(actor, false, attack_timer > 0.0, battle_time * 9.0)
 
-func _spawn_hit_effect(hit_position: Vector3) -> void:
-    var flash := MeshInstance3D.new()
-    var sphere := SphereMesh.new()
-    sphere.radius = 0.22
-    sphere.height = 0.44
-    sphere.radial_segments = 8
-    sphere.rings = 4
-    flash.mesh = sphere
-    flash.position = hit_position
-    var material := StandardMaterial3D.new()
-    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-    material.albedo_color = Color(1.0, 0.72, 0.22)
-    material.emission_enabled = true
-    material.emission = Color(1.0, 0.32, 0.06)
-    material.emission_energy_multiplier = 2.5
-    flash.material_override = material
-    add_child(flash)
-    var effect_tween := create_tween()
-    effect_tween.tween_property(flash, "scale", Vector3.ONE * 2.8, 0.16)
-    effect_tween.tween_callback(flash.queue_free)
 
 func _process(delta: float) -> void:
     _update_flight_camera(delta)
