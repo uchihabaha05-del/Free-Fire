@@ -102,10 +102,24 @@ jobs:
       - name: Import project resources
         run: godot --headless --editor --path . --import
 
-      - name: Configure Godot Android SDK paths
-        run: godot --headless --editor --path . --script res://ci/configure_android.gd
+      - name: Configure Godot Android export settings
+        shell: bash
         env:
           GODOT_ANDROID_KEYSTORE_DEBUG_PATH: ${{ runner.temp }}/mass-battle-debug.keystore
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          test -s "$HOME/.config/godot/editor_settings-4.tres"
 
       - name: Headless editor validation
         run: godot --headless --editor --path . --quit
