@@ -44,12 +44,14 @@ var iron_man_side := -1 # -1 = blue army, 1 = red army
 var hulk: Node3D
 var hulk_attack_timer := 0.0
 var hulk_motion_time := 0.0
+var soldier_preview_nodes: Array[Node3D] = []
 
 func _ready() -> void:
     rng.randomize()
     _build_world()
     _build_ui()
     _setup_armies()
+    _create_soldier_previews()
     _create_iron_man()
     _create_hulk()
     _apply_visible_counts()
@@ -669,6 +671,38 @@ func _make_spin(initial: int) -> SpinBox:
     spin.value = initial
     spin.custom_minimum_size.x = 220
     return spin
+
+func _create_soldier_previews() -> void:
+    # One rigged GLB showcase per side. The mass formations remain MultiMesh
+    # instances so large battles do not create thousands of Skeleton3D nodes.
+    var model_path := "res://assets/characters/male_soldier_03.glb"
+    if not ResourceLoader.exists(model_path):
+        push_warning("Soldier GLB is not present; using the built-in MultiMesh soldiers.")
+        return
+    var packed := load(model_path) as PackedScene
+    if packed == null:
+        push_warning("Could not load soldier GLB scene: " + model_path)
+        return
+    for side in [-1, 1]:
+        var soldier := packed.instantiate() as Node3D
+        if soldier == null:
+            continue
+        soldier.name = "RiggedSoldierPreview_%s" % ("Blue" if side < 0 else "Red")
+        soldier.scale = Vector3.ONE
+        soldier.position = Vector3(-FIELD_WIDTH * 0.5 - 2.0, _height_approx(-FIELD_WIDTH * 0.5 - 2.0, float(side) * 9.0), float(side) * 9.0)
+        soldier.rotation.y = 0.0 if side < 0 else PI
+        add_child(soldier)
+        soldier_preview_nodes.append(soldier)
+        var animation_player := soldier.find_child("AnimationPlayer", true, false) as AnimationPlayer
+        if animation_player != null:
+            var idle_name := ""
+            for animation_name in animation_player.get_animation_list():
+                if String(animation_name).to_lower().contains("idle"):
+                    idle_name = String(animation_name)
+                    break
+            if idle_name != "":
+                animation_player.play(idle_name)
+
 
 func _setup_armies() -> void:
     team_a_mesh = _create_army(Color(0.18, 0.38, 0.70), -1)
