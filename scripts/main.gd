@@ -313,27 +313,27 @@ func _build_ui() -> void:
     title.add_theme_font_size_override("font_size", 22)
     column.add_child(title)
     var subtitle := Label.new()
-    subtitle.text = "CHOOSE HEROES • BUILD YOUR TEAMS"
+    subtitle.text = "ВЫБЕРИ ГЕРОЕВ И СОБЕРИ КОМАНДЫ"
     subtitle.add_theme_font_size_override("font_size", 9)
     column.add_child(subtitle)
     column.add_child(HSeparator.new())
-    column.add_child(_make_label("BLUE TEAM — CHARACTER"))
+    column.add_child(_make_label("СИНЯЯ КОМАНДА — ПЕРСОНАЖ"))
     a_character_option = _make_character_option("Iron Man")
     column.add_child(a_character_option)
-    column.add_child(_make_label("BLUE TEAM — NUMBER OF CHARACTERS"))
+    column.add_child(_make_label("КОЛИЧЕСТВО ПЕРСОНАЖЕЙ"))
     a_spin = _make_spin(3)
     column.add_child(a_spin)
-    column.add_child(_make_label("RED TEAM — CHARACTER"))
+    column.add_child(_make_label("КРАСНАЯ КОМАНДА — ПЕРСОНАЖ"))
     b_character_option = _make_character_option("Hulk")
     column.add_child(b_character_option)
-    column.add_child(_make_label("RED TEAM — NUMBER OF CHARACTERS"))
+    column.add_child(_make_label("КОЛИЧЕСТВО ПЕРСОНАЖЕЙ"))
     b_spin = _make_spin(3)
     column.add_child(b_spin)
     status_label = Label.new()
     status_label.add_theme_font_size_override("font_size", 11)
     column.add_child(status_label)
     start_button = Button.new()
-    start_button.text = "START BATTLE"
+    start_button.text = "НАЧАТЬ БОЙ"
     start_button.custom_minimum_size.y = 40
     start_button.pressed.connect(_start_battle)
     column.add_child(start_button)
@@ -371,7 +371,7 @@ func _start_battle() -> void:
     _spawn_team(CHARACTER_NAMES[a_character_option.selected], -1, team_a_count)
     _spawn_team(CHARACTER_NAMES[b_character_option.selected], 1, team_b_count)
     battle_running = true
-    start_button.text = "RESTART BATTLE"
+    start_button.text = "ПЕРЕЗАПУСТИТЬ БОЙ"
     _refresh_ui()
 
 func _reset_battle() -> void:
@@ -497,6 +497,11 @@ func _update_combat(delta: float) -> void:
                     var enemy_data: Dictionary = unit_data.get(enemy_id, {})
                     enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
                     unit_data[enemy_id] = enemy_data
+                    var old_scale := actor.scale
+                    actor.scale = old_scale * 1.10
+                    var attack_tween := create_tween()
+                    attack_tween.tween_property(actor, "scale", old_scale, 0.16)
+                    _spawn_hit_effect(nearest.position + Vector3.UP * 1.2)
                     cooldown = 0.85
                     if float(enemy_data["health"]) <= 0.0:
                         enemies.erase(nearest)
@@ -504,6 +509,27 @@ func _update_combat(delta: float) -> void:
                         nearest.queue_free()
                 data["cooldown"] = cooldown
                 unit_data[actor_id] = data
+
+func _spawn_hit_effect(hit_position: Vector3) -> void:
+    var flash := MeshInstance3D.new()
+    var sphere := SphereMesh.new()
+    sphere.radius = 0.22
+    sphere.height = 0.44
+    sphere.radial_segments = 8
+    sphere.rings = 4
+    flash.mesh = sphere
+    flash.position = hit_position
+    var material := StandardMaterial3D.new()
+    material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+    material.albedo_color = Color(1.0, 0.72, 0.22)
+    material.emission_enabled = true
+    material.emission = Color(1.0, 0.32, 0.06)
+    material.emission_energy_multiplier = 2.5
+    flash.material_override = material
+    add_child(flash)
+    var effect_tween := create_tween()
+    effect_tween.tween_property(flash, "scale", Vector3.ONE * 2.8, 0.16)
+    effect_tween.tween_callback(flash.queue_free)
 
 func _process(delta: float) -> void:
     _update_flight_camera(delta)
@@ -519,7 +545,7 @@ func _process(delta: float) -> void:
         _refresh_ui()
     if team_a_units.is_empty() or team_b_units.is_empty():
         battle_running = false
-        start_button.text = "START NEW BATTLE"
+        start_button.text = "НОВЫЙ БОЙ"
         _refresh_ui()
 
 func _winner_text() -> String:
