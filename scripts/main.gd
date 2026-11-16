@@ -109,7 +109,9 @@ func _create_terrain() -> void:
 
 func _terrain_height(noise: FastNoiseLite, x: float, z: float) -> float:
     var edge_falloff := clampf(1.0 - absf(z) / (FIELD_DEPTH * 0.62), 0.0, 1.0)
-    return noise.get_noise_2d(x, z) * 1.35 * edge_falloff
+    var broad_hills := noise.get_noise_2d(x, z) * 2.25
+    var detail := noise.get_noise_2d(x * 2.8 + 31.0, z * 2.8 - 17.0) * 0.48
+    return (broad_hills + detail) * edge_falloff
 
 func _add_terrain_vertex(surface: SurfaceTool, point: Vector3, uv: Vector2) -> void:
     surface.set_uv(uv)
