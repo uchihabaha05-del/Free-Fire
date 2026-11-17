@@ -1,262 +1,759 @@
 extends Node3D
 
-# MASS BATTLE: lightweight crowd-rendering and group-combat prototype.
-# Visual soldiers are GPU-instanced; combat is currently simulated in groups.
-
+# MASS BATTLE — native Godot port of Claude's wasteland map.
+# Native Godot recreation of the supplied Three.js map: 2.4 km terrain, 1 km radius.
 const MAX_UNITS := 10000
-const FIELD_WIDTH := 90.0
-const FIELD_DEPTH := 54.0
+const FIELD_WIDTH := 1100.0
+const FIELD_DEPTH := 720.0
+const MAP_SIZE := 2400.0
+const MAP_RADIUS := 1000.0
+const TERRAIN_SEGMENTS := 192
+const GRASS_COUNT := 18000
+const ROCK_COUNT := 700
 
-var team_a_count := 500
-var team_b_count := 500
-var team_a_alive := 500
-var team_b_alive := 500
+var team_a_count := 3
+var team_b_count := 3
+var team_a_alive := 0
+var team_b_alive := 0
 var battle_running := false
 var battle_time := 0.0
 var battle_speed := 1.0
 var ui_refresh_timer := 0.0
 var rng := RandomNumberGenerator.new()
 
-var team_a_mesh: MultiMeshInstance3D
-var team_b_mesh: MultiMeshInstance3D
 var status_label: Label
 var a_spin: SpinBox
 var b_spin: SpinBox
-var speed_slider: HSlider
 var start_button: Button
-var reset_button: Button
+var battle_camera: Camera3D
+var camera_move := {"forward": false, "back": false, "left": false, "right": false, "up": false, "down": false}
+var camera_look_sensitivity := 0.0025
+var camera_flight_speed := 150.0
+var camera_drag_active := false
+var touch_look_id := -1
+const CHARACTER_NAMES := ["Spider-Man", "Hulk"]
+const CHARACTER_MODELS := {
+    "Spider-Man": "res://assets/characters/SpideyMesh.dae",
+    "Hulk": "res://assets/characters/b337594dc560b6dd1d13c8c4d744eef9.glb",
+}
+var team_a_units: Array[Node3D] = []
+var team_b_units: Array[Node3D] = []
+var unit_data: Dictionary = {}
+var a_character_option: OptionButton
+var b_character_option: OptionButton
+var touch_joy_id := -1
+var touch_joy_origin := Vector2.ZERO
+var touch_joy_vector := Vector2.ZERO
+var punch_player: AudioStreamPlayer
+var impact_player: AudioStreamPlayer
+
+var main_menu: Control
+var main_menu_layer: CanvasLayer
 
 func _ready() -> void:
     rng.randomize()
-    _build_world()
-    _build_ui()
-    _setup_armies()
-    _apply_visible_counts()
-    _refresh_ui()
+    _create_combat_audio()
+    _show_main_menu()
 
-func _build_world() -> void:
+func _show_main_menu() -> void:
+    main_menu_layer = CanvasLayer.new()
+    main_menu_layer.name = "MainMenuLayer"
+    main_menu_layer.layer = 10
+    add_child(main_menu_layer)
+
+    main_menu = Control.new()
+    main_menu.name = "MainMenu"
+    main_menu.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    main_menu_layer.add_child(main_menu)
+
+    var backdrop := ColorRect.new()
+    backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    backdrop.color = Color(0.035, 0.055, 0.085, 1.0)
+    main_menu.add_child(backdrop)
+
+    var center := CenterContainer.new()
+    center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    main_menu.add_child(center)
+
+    var content := VBoxContainer.new()
+    content.custom_minimum_size = Vector2(420, 0)
+    content.add_theme_constant_override("separation", 18)
+    center.add_child(content)
+
+    var title := Label.new()
+    title.text = "MASS BATTLE"
+    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    title.add_theme_font_size_override("font_size", 46)
+    content.add_child(title)
+
+    var subtitle := Label.new()
+    subtitle.text = "MARVEL HEROES • REAL-TIME BATTLES"
+    subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    subtitle.add_theme_font_size_override("font_size", 16)
+    content.add_child(subtitle)
+
+    var spacer := Control.new()
+    spacer.custom_minimum_size.y = 18
+    content.add_child(spacer)
+
+    var play := Button.new()
+    play.text = "ИГРАТЬ"
+    play.custom_minimum_size = Vector2(300, 64)
+    play.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+    play.add_theme_font_size_override("font_size", 24)
+    play.pressed.connect(_enter_game)
+    content.add_child(play)
+
+    var hint := Label.new()
+    hint.text = "Выбирай героев и наблюдай за битвой"
+    hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    hint.add_theme_font_size_override("font_size", 13)
+    content.add_child(hint)
+
+func _enter_game() -> void:
+    if is_instance_valid(main_menu_layer):
+        main_menu_layer.queue_free()
+    _create_bootstrap_world()
+    _build_ui()
+    _refresh_ui()
+    call_deferred("_build_world")
+
+func _create_bootstrap_world() -> void:
     var env := WorldEnvironment.new()
     var environment := Environment.new()
-    environment.background_mode = Environment.BG_SKY
+    environment.background_mode = Environment.BG_COLOR
+    environment.background_color = Color(0.47, 0.56, 0.63)
     environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    environment.ambient_light_color = Color(0.62, 0.68, 0.78)
-    environment.ambient_light_energy = 0.8
+    environment.ambient_light_color = Color(0.78, 0.80, 0.82)
+    environment.ambient_light_energy = 1.0
     env.environment = environment
     add_child(env)
 
+    var floor_node := MeshInstance3D.new()
+    floor_node.name = "LaunchFallbackGround"
+    var floor_mesh := PlaneMesh.new()
+    floor_mesh.size = Vector2(MAP_SIZE, MAP_SIZE)
+    floor_node.mesh = floor_mesh
+    var floor_material := StandardMaterial3D.new()
+    floor_material.albedo_color = Color(0.48, 0.43, 0.34)
+    floor_material.roughness = 1.0
+    floor_node.material_override = floor_material
+    floor_node.position.y = -0.15
+    add_child(floor_node)
+
     var sun := DirectionalLight3D.new()
-    sun.rotation_degrees = Vector3(-55, -25, 0)
-    sun.light_energy = 1.4
+    sun.rotation_degrees = Vector3(-48, -28, 0)
+    sun.light_energy = 1.35
+    add_child(sun)
+    _create_camera()
+
+func _build_world() -> void:
+    var env := get_node_or_null("WorldEnvironment") as WorldEnvironment
+    if env == null:
+        env = WorldEnvironment.new()
+        env.name = "WorldEnvironment"
+        add_child(env)
+    var environment := Environment.new()
+    environment.background_mode = Environment.BG_SKY
+    var sky := Sky.new()
+    var sky_material := ProceduralSkyMaterial.new()
+    sky_material.sky_top_color = Color(0.20, 0.36, 0.53)
+    sky_material.sky_horizon_color = Color(0.72, 0.75, 0.73)
+    sky_material.ground_bottom_color = Color(0.12, 0.13, 0.11)
+    sky_material.ground_horizon_color = Color(0.48, 0.48, 0.42)
+    sky.sky_material = sky_material
+    environment.sky = sky
+    environment.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+    environment.ambient_light_energy = 1.25
+    environment.reflected_light_source = Environment.REFLECTION_SOURCE_BG
+    environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+    environment.tonemap_exposure = 1.18
+    environment.fog_enabled = true
+    environment.fog_light_color = Color(0.65, 0.68, 0.65)
+    environment.fog_density = 0.00045
+    environment.fog_sky_affect = 0.5
+    env.environment = environment
+
+    var sun := DirectionalLight3D.new()
+    sun.rotation_degrees = Vector3(-48, -28, 0)
+    sun.light_energy = 1.85
+    sun.shadow_enabled = true
+    sun.directional_shadow_max_distance = 1200.0
     add_child(sun)
 
-    var ground := MeshInstance3D.new()
-    var plane := PlaneMesh.new()
-    plane.size = Vector2(FIELD_WIDTH, FIELD_DEPTH)
-    ground.mesh = plane
-    var ground_mat := StandardMaterial3D.new()
-    ground_mat.albedo_color = Color(0.16, 0.19, 0.22)
-    ground_mat.roughness = 1.0
-    ground.material_override = ground_mat
-    ground.position.y = -0.15
-    add_child(ground)
+    _create_terrain()
+    _create_wasteland_props()
+    # Camera is created before deferred world generation so the launch frame is visible.
 
-    _add_box(Vector3(0.12, 0.03, FIELD_DEPTH), Vector3(0, 0.01, 0), Color(0.9, 0.9, 0.9, 0.45))
-    _add_box(Vector3(FIELD_WIDTH, 0.2, 0.25), Vector3(0, 0.0, -FIELD_DEPTH / 2), Color(0.35, 0.38, 0.42))
-    _add_box(Vector3(FIELD_WIDTH, 0.2, 0.25), Vector3(0, 0.0, FIELD_DEPTH / 2), Color(0.35, 0.38, 0.42))
+func _terrain_height(noise: FastNoiseLite, x: float, z: float) -> float:
+    var broad := noise.get_noise_2d(x, z) * 3.8
+    var detail := noise.get_noise_2d(x * 0.004 + 31.0, z * 0.004 - 17.0) * 0.35
+    return broad + detail
 
-    var camera := Camera3D.new()
-    camera.position = Vector3(0, 62, 67)
-    camera.rotation_degrees = Vector3(-43, 0, 0)
-    camera.current = true
-    camera.fov = 48
-    add_child(camera)
+func _create_terrain() -> void:
+    var noise := FastNoiseLite.new()
+    noise.seed = 4812
+    noise.frequency = 0.0012
+    noise.fractal_octaves = 4
+    noise.fractal_gain = 0.48
 
-func _add_box(size: Vector3, pos: Vector3, color: Color) -> void:
+    var surface := SurfaceTool.new()
+    surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+    var step := MAP_SIZE / float(TERRAIN_SEGMENTS)
+    for z in range(TERRAIN_SEGMENTS):
+        for x in range(TERRAIN_SEGMENTS):
+            var x0 := -MAP_SIZE * 0.5 + float(x) * step
+            var x1 := x0 + step
+            var z0 := -MAP_SIZE * 0.5 + float(z) * step
+            var z1 := z0 + step
+            var p00 := Vector3(x0, _terrain_height(noise, x0, z0), z0)
+            var p10 := Vector3(x1, _terrain_height(noise, x1, z0), z0)
+            var p01 := Vector3(x0, _terrain_height(noise, x0, z1), z1)
+            var p11 := Vector3(x1, _terrain_height(noise, x1, z1), z1)
+            _terrain_vertex(surface, p00, Vector2(float(x) / TERRAIN_SEGMENTS, float(z) / TERRAIN_SEGMENTS), noise)
+            _terrain_vertex(surface, p01, Vector2(float(x) / TERRAIN_SEGMENTS, float(z + 1) / TERRAIN_SEGMENTS), noise)
+            _terrain_vertex(surface, p10, Vector2(float(x + 1) / TERRAIN_SEGMENTS, float(z) / TERRAIN_SEGMENTS), noise)
+            _terrain_vertex(surface, p10, Vector2(float(x + 1) / TERRAIN_SEGMENTS, float(z) / TERRAIN_SEGMENTS), noise)
+            _terrain_vertex(surface, p01, Vector2(float(x) / TERRAIN_SEGMENTS, float(z + 1) / TERRAIN_SEGMENTS), noise)
+            _terrain_vertex(surface, p11, Vector2(float(x + 1) / TERRAIN_SEGMENTS, float(z + 1) / TERRAIN_SEGMENTS), noise)
+    surface.generate_normals()
+    var terrain := MeshInstance3D.new()
+    terrain.name = "WastelandTerrain"
+    terrain.mesh = surface.commit()
+    var material := StandardMaterial3D.new()
+    material.vertex_color_use_as_albedo = true
+    material.albedo_color = Color.WHITE
+    material.roughness = 1.0
+    material.uv1_scale = Vector3(18.0, 18.0, 1.0)
+    terrain.material_override = material
+    terrain.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    add_child(terrain)
+
+func _terrain_vertex(surface: SurfaceTool, point: Vector3, uv: Vector2, noise: FastNoiseLite) -> void:
+    var patch := noise.get_noise_2d(point.x * 0.0055 + 170.0, point.z * 0.0055 - 90.0)
+    var moisture := noise.get_noise_2d(point.x * 0.0025 - 300.0, point.z * 0.0025 + 200.0)
+    var dirt := Color(0.52, 0.43, 0.30)
+    var dry_grass := Color(0.42, 0.50, 0.29)
+    var dusty := Color(0.66, 0.59, 0.45)
+    var color := dirt.lerp(dry_grass, clampf((moisture + 0.35) * 0.85, 0.0, 0.72))
+    color = color.lerp(dusty, clampf((patch - 0.25) * 0.32, 0.0, 0.22))
+    surface.set_color(color)
+    surface.set_uv(uv)
+    surface.add_vertex(point)
+
+func _create_wasteland_props() -> void:
+    _add_dirt_track()
+    _add_rock_scatter()
+    _add_grass_scatter()
+    _add_ruins()
+    _add_outer_wall()
+
+func _add_dirt_track() -> void:
+    var road := _add_box(Vector3(130.0, 0.10, FIELD_DEPTH + 280.0), Vector3(0, 0.02, 0), Color(0.30, 0.25, 0.18))
+    road.rotation_degrees.y = 1.5
+    for side in [-1, 1]:
+        for row in range(3):
+            var z := float(side) * (130.0 + float(row) * 80.0)
+            _add_box(Vector3(250.0 - float(row) * 30.0, 1.0, 15.0), Vector3(float(side) * (70.0 - float(row) * 15.0), 0.42, z), Color(0.34, 0.31, 0.24))
+        for i in range(7):
+            var x := -420.0 + float(i) * 140.0
+            _add_box(Vector3(40.0, 0.72, 10.0), Vector3(x, 0.34, float(side) * 250.0), Color(0.49, 0.43, 0.31))
+
+func _add_rock_scatter() -> void:
+    var rock := SphereMesh.new()
+    rock.radius = 1.0
+    rock.height = 1.7
+    rock.radial_segments = 7
+    rock.rings = 4
+    var mm := MultiMesh.new()
+    mm.transform_format = MultiMesh.TRANSFORM_3D
+    mm.use_colors = true
+    mm.mesh = rock
+    mm.instance_count = ROCK_COUNT
+    for i in range(ROCK_COUNT):
+        var angle := rng.randf_range(0.0, TAU)
+        var radius := sqrt(rng.randf()) * 960.0
+        var x := cos(angle) * radius
+        var z := sin(angle) * radius
+        if absf(x) < 90.0 and absf(z) < 170.0:
+            x += signf(x if x != 0.0 else 1.0) * 130.0
+        var scale := rng.randf_range(1.2, 6.0)
+        var pos := Vector3(x, _height_approx(x, z) + scale * 0.35, z)
+        var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(scale * rng.randf_range(0.8, 1.4), scale * rng.randf_range(0.5, 0.9), scale))
+        mm.set_instance_transform(i, Transform3D(basis, pos))
+        var shade := rng.randf_range(0.72, 1.12)
+        mm.set_instance_color(i, Color(shade, shade * 0.97, shade * 0.90))
+    var node := MultiMeshInstance3D.new()
+    node.name = "ScatteredRocks"
+    node.multimesh = mm
+    var mat := StandardMaterial3D.new()
+    mat.vertex_color_use_as_albedo = true
+    mat.albedo_color = Color(0.55, 0.53, 0.48)
+    mat.roughness = 1.0
+    node.material_override = mat
+    add_child(node)
+
+func _make_grass_clump_mesh() -> ArrayMesh:
+    # Three crossed, tapered blades per clump: visible from every camera angle.
+    var surface := SurfaceTool.new()
+    surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+    for blade_index in range(3):
+        var angle := float(blade_index) * PI / 3.0
+        var side := Vector3(cos(angle), 0.0, sin(angle)) * 0.16
+        var lean := Vector3(cos(angle + 0.9), 0.0, sin(angle + 0.9)) * 0.13
+        var base := Vector3.ZERO
+        var tip := Vector3(0.0, 1.0, 0.0) + lean
+        var left := base - side
+        var right := base + side
+        var middle := Vector3(0.0, 0.48, 0.0) + lean * 0.42
+        var middle_left := middle - side * 0.48
+        var middle_right := middle + side * 0.48
+        var dark := Color(0.22, 0.31, 0.12, 1.0)
+        var green := Color(0.48, 0.59, 0.23, 1.0)
+        var tip_color := Color(0.68, 0.70, 0.34, 1.0)
+        _grass_triangle(surface, left, middle_left, middle, dark, green, green)
+        _grass_triangle(surface, left, middle, tip, dark, green, tip_color)
+        _grass_triangle(surface, middle, middle_right, tip, green, green, tip_color)
+        _grass_triangle(surface, middle_right, right, tip, green, dark, tip_color)
+    surface.generate_normals()
+    return surface.commit()
+
+func _grass_triangle(surface: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+    surface.set_color(ca)
+    surface.add_vertex(a)
+    surface.set_color(cb)
+    surface.add_vertex(b)
+    surface.set_color(cc)
+    surface.add_vertex(c)
+
+func _add_grass_scatter() -> void:
+    var grass_mesh := _make_grass_clump_mesh()
+    var mm := MultiMesh.new()
+    mm.transform_format = MultiMesh.TRANSFORM_3D
+    mm.use_colors = true
+    mm.mesh = grass_mesh
+    mm.instance_count = GRASS_COUNT
+    for i in range(GRASS_COUNT):
+        # Bias density toward the playable area so grass is visible in the battle camera.
+        var angle := rng.randf_range(0.0, TAU)
+        var radius := sqrt(rng.randf()) * 720.0
+        var x := cos(angle) * radius
+        var z := sin(angle) * radius
+        if absf(x) < 76.0 and absf(z) < 145.0:
+            x += signf(x if x != 0.0 else 1.0) * 96.0
+        var h := rng.randf_range(0.85, 2.0)
+        var width := rng.randf_range(0.75, 1.35)
+        var pos := Vector3(x, _height_approx(x, z) - 0.02, z)
+        var basis := Basis(Vector3.UP, rng.randf_range(0.0, TAU)).scaled(Vector3(width, h, width))
+        mm.set_instance_transform(i, Transform3D(basis, pos))
+        var shade := rng.randf_range(0.78, 1.16)
+        mm.set_instance_color(i, Color(shade, shade * rng.randf_range(0.91, 1.04), shade * 0.78, 1.0))
+    var node := MultiMeshInstance3D.new()
+    node.name = "RealisticGrassClumps"
+    node.multimesh = mm
+    var mat := StandardMaterial3D.new()
+    mat.vertex_color_use_as_albedo = true
+    mat.albedo_color = Color.WHITE
+    mat.roughness = 0.94
+    mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+    node.material_override = mat
+    node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+    add_child(node)
+
+func _add_ruins() -> void:
+    var stone := Color(0.43, 0.41, 0.36)
+    for cluster in range(8):
+        var angle := rng.randf_range(0.0, TAU)
+        var radius := rng.randf_range(350.0, 880.0)
+        var center := Vector3(cos(angle) * radius, 0.0, sin(angle) * radius)
+        var pieces := rng.randi_range(8, 16)
+        for i in range(pieces):
+            var offset := Vector3(rng.randf_range(-70.0, 70.0), 0.0, rng.randf_range(-70.0, 70.0))
+            var h := rng.randf_range(8.0, 32.0)
+            var size := Vector3(rng.randf_range(12.0, 38.0), h, rng.randf_range(12.0, 30.0))
+            var block := _add_box(size, center + offset + Vector3(0, h * 0.5, 0), stone.lightened(rng.randf_range(-0.08, 0.08)))
+            block.rotation_degrees = Vector3(rng.randf_range(-5, 5), rng.randf_range(0, 180), rng.randf_range(-5, 5))
+
+func _add_outer_wall() -> void:
+    var wall_material := Color(0.43, 0.41, 0.37)
+    var segments := 160
+    for i in range(segments):
+        var angle := float(i) / float(segments) * TAU
+        var next_angle := float(i + 1) / float(segments) * TAU
+        var middle := (angle + next_angle) * 0.5
+        var arc_length := TAU * MAP_RADIUS / float(segments)
+        var pos := Vector3(cos(middle) * MAP_RADIUS, 90.0, sin(middle) * MAP_RADIUS)
+        var wall := _add_box(Vector3(arc_length + 0.8, 260.0, 44.0), pos, wall_material)
+        wall.rotation.y = -middle
+        if i % 4 == 0:
+            var buttress := _add_box(Vector3(50.0, 270.0, 70.0), Vector3(cos(angle) * (MAP_RADIUS - 24.0), 94.0, sin(angle) * (MAP_RADIUS - 24.0)), wall_material.darkened(0.08))
+            buttress.rotation.y = -angle
+
+func _height_approx(x: float, z: float) -> float:
+    var broad := sin(x * 0.0011) * cos(z * 0.0009) * 2.8
+    var detail := sin(x * 0.0043 + 31.0) * cos(z * 0.0037 - 17.0) * 0.25
+    return broad + detail
+
+func _create_camera() -> void:
+    battle_camera = Camera3D.new()
+    battle_camera.name = "FreeFlightCamera"
+    battle_camera.position = Vector3(0, 105, 340)
+    battle_camera.fov = 58
+    battle_camera.near = 0.08
+    battle_camera.far = 6200.0
+    add_child(battle_camera)
+    # Use a target point rather than a hard-coded Euler angle: this keeps the
+    # camera looking at the playable map on every device and aspect ratio.
+    battle_camera.look_at(Vector3(0, 0, 0), Vector3.UP)
+    battle_camera.current = true
+    battle_camera.make_current()
+
+func _add_box(size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
     var node := MeshInstance3D.new()
     var mesh := BoxMesh.new()
     mesh.size = size
     node.mesh = mesh
-    var mat := StandardMaterial3D.new()
-    mat.albedo_color = color
-    node.material_override = mat
+    var material := StandardMaterial3D.new()
+    material.albedo_color = color
+    material.roughness = 0.96
+    node.material_override = material
     node.position = pos
     add_child(node)
+    return node
+
 
 func _build_ui() -> void:
     var layer := CanvasLayer.new()
+    layer.name = "GameUI"
     add_child(layer)
-
     var panel := PanelContainer.new()
-    panel.position = Vector2(18, 18)
-    panel.custom_minimum_size = Vector2(310, 0)
+    panel.position = Vector2(14, 14)
+    panel.custom_minimum_size = Vector2(290, 0)
     layer.add_child(panel)
-
     var column := VBoxContainer.new()
-    column.add_theme_constant_override("separation", 8)
+    column.add_theme_constant_override("separation", 5)
     panel.add_child(column)
-
     var title := Label.new()
     title.text = "MASS BATTLE"
-    title.add_theme_font_size_override("font_size", 26)
+    title.add_theme_font_size_override("font_size", 22)
     column.add_child(title)
-
     var subtitle := Label.new()
-    subtitle.text = "BUILD TWO ARMIES • WATCH THE BATTLE"
-    subtitle.add_theme_font_size_override("font_size", 10)
+    subtitle.text = "ВЫБЕРИ ГЕРОЕВ И СОБЕРИ КОМАНДЫ"
+    subtitle.add_theme_font_size_override("font_size", 9)
     column.add_child(subtitle)
-
     column.add_child(HSeparator.new())
-    column.add_child(_make_label("BLUE ARMY — SOLDIERS"))
-    a_spin = _make_spin(500)
+    column.add_child(_make_label("СИНЯЯ КОМАНДА — ПЕРСОНАЖ"))
+    a_character_option = _make_character_option("Spider-Man")
+    column.add_child(a_character_option)
+    column.add_child(_make_label("КОЛИЧЕСТВО ПЕРСОНАЖЕЙ"))
+    a_spin = _make_spin(3)
     column.add_child(a_spin)
-    column.add_child(_make_label("RED ARMY — SOLDIERS"))
-    b_spin = _make_spin(500)
+    column.add_child(_make_label("КРАСНАЯ КОМАНДА — ПЕРСОНАЖ"))
+    b_character_option = _make_character_option("Hulk")
+    column.add_child(b_character_option)
+    column.add_child(_make_label("КОЛИЧЕСТВО ПЕРСОНАЖЕЙ"))
+    b_spin = _make_spin(3)
     column.add_child(b_spin)
-
-    var speed_row := HBoxContainer.new()
-    var speed_text := Label.new()
-    speed_text.text = "Battle speed"
-    speed_row.add_child(speed_text)
-    speed_slider = HSlider.new()
-    speed_slider.min_value = 0.25
-    speed_slider.max_value = 4.0
-    speed_slider.step = 0.25
-    speed_slider.value = 1.0
-    speed_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-    speed_slider.value_changed.connect(func(value: float) -> void:
-        battle_speed = value
-    )
-    speed_row.add_child(speed_slider)
-    column.add_child(speed_row)
-
     status_label = Label.new()
-    status_label.text = "Ready"
-    status_label.add_theme_font_size_override("font_size", 14)
+    status_label.add_theme_font_size_override("font_size", 11)
     column.add_child(status_label)
-
     start_button = Button.new()
-    start_button.text = "START BATTLE"
-    start_button.custom_minimum_size.y = 42
+    start_button.text = "НАЧАТЬ БОЙ"
+    start_button.custom_minimum_size.y = 40
     start_button.pressed.connect(_start_battle)
     column.add_child(start_button)
 
-    reset_button = Button.new()
-    reset_button.text = "RESET ARMIES"
-    reset_button.pressed.connect(_reset_battle)
-    column.add_child(reset_button)
-
-    var note := Label.new()
-    note.text = "Prototype: group-based combat simulation\nVisual crowd uses MultiMesh instancing."
-    note.add_theme_font_size_override("font_size", 10)
-    column.add_child(note)
+func _make_character_option(selected_name: String) -> OptionButton:
+    var option := OptionButton.new()
+    option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    var selected_index := 0
+    for character_name in CHARACTER_NAMES:
+        var model_path: String = CHARACTER_MODELS.get(character_name, "")
+        if ResourceLoader.exists(model_path):
+            option.add_item(character_name)
+            var item_index := option.item_count - 1
+            option.set_item_metadata(item_index, character_name)
+            if character_name == selected_name:
+                selected_index = item_index
+    if option.item_count > 0:
+        option.select(selected_index)
+    return option
 
 func _make_label(value: String) -> Label:
     var label := Label.new()
     label.text = value
-    label.add_theme_font_size_override("font_size", 11)
+    label.add_theme_font_size_override("font_size", 10)
     return label
 
 func _make_spin(initial: int) -> SpinBox:
     var spin := SpinBox.new()
     spin.min_value = 1
-    spin.max_value = MAX_UNITS
-    spin.step = 50
+    spin.max_value = 50
+    spin.step = 1
     spin.value = initial
-    spin.custom_minimum_size.x = 260
+    spin.custom_minimum_size.x = 250
     return spin
 
-func _setup_armies() -> void:
-    team_a_mesh = _create_army(Color(0.12, 0.48, 1.0), -1)
-    team_b_mesh = _create_army(Color(1.0, 0.19, 0.16), 1)
-    add_child(team_a_mesh)
-    add_child(team_b_mesh)
-
-func _create_army(color: Color, side: int) -> MultiMeshInstance3D:
-    var instance := MultiMeshInstance3D.new()
-    var multimesh := MultiMesh.new()
-    multimesh.transform_format = MultiMesh.TRANSFORM_3D
-    multimesh.use_colors = true
-    multimesh.mesh = _make_soldier_mesh()
-    multimesh.instance_count = MAX_UNITS
-
-    for i in range(MAX_UNITS):
-        var columns: int = 100
-        var row: int = int(i / columns)
-        var col: int = i % columns
-        var x := (float(col) / float(columns - 1) - 0.5) * (FIELD_WIDTH - 8.0)
-        var z := side * (5.0 + float(row) * 0.38)
-        multimesh.set_instance_transform(i, Transform3D(Basis(), Vector3(x, 0.0, z)))
-        multimesh.set_instance_color(i, color.lightened(rng.randf_range(-0.08, 0.12)))
-
-    instance.multimesh = multimesh
-    return instance
-
-func _make_soldier_mesh() -> Mesh:
-    var capsule := CapsuleMesh.new()
-    capsule.radius = 0.16
-    capsule.height = 0.72
-    capsule.radial_segments = 5
-    capsule.rings = 2
-    return capsule
-
 func _start_battle() -> void:
-    if battle_running:
-        battle_running = false
-        start_button.text = "RESUME BATTLE"
-        return
-
-    if team_a_alive <= 0 or team_b_alive <= 0:
-        _reset_battle()
-    else:
-        team_a_count = clampi(int(a_spin.value), 1, MAX_UNITS)
-        team_b_count = clampi(int(b_spin.value), 1, MAX_UNITS)
-        if battle_time == 0.0:
-            team_a_alive = team_a_count
-            team_b_alive = team_b_count
-            _apply_visible_counts()
-
+    _clear_units()
+    battle_time = 0.0
+    team_a_count = clampi(int(a_spin.value), 1, 50)
+    team_b_count = clampi(int(b_spin.value), 1, 50)
+    team_a_alive = team_a_count
+    team_b_alive = team_b_count
+    _spawn_team(str(a_character_option.get_item_metadata(a_character_option.selected)), -1, team_a_count)
+    _spawn_team(str(b_character_option.get_item_metadata(b_character_option.selected)), 1, team_b_count)
     battle_running = true
-    start_button.text = "PAUSE BATTLE"
+    start_button.text = "ПЕРЕЗАПУСТИТЬ БОЙ"
     _refresh_ui()
 
 func _reset_battle() -> void:
     battle_running = false
+    _clear_units()
     battle_time = 0.0
-    team_a_count = clampi(int(a_spin.value), 1, MAX_UNITS)
-    team_b_count = clampi(int(b_spin.value), 1, MAX_UNITS)
-    team_a_alive = team_a_count
-    team_b_alive = team_b_count
+    team_a_alive = 0
+    team_b_alive = 0
     start_button.text = "START BATTLE"
-    _apply_visible_counts()
     _refresh_ui()
 
+func _clear_units() -> void:
+    for actor in team_a_units + team_b_units:
+        if is_instance_valid(actor):
+            actor.queue_free()
+    team_a_units.clear()
+    team_b_units.clear()
+    unit_data.clear()
+
+func _spawn_team(character_name: String, side: int, amount: int) -> void:
+    for i in range(amount):
+        var actor := _spawn_character(character_name, side, i, amount)
+        if actor == null:
+            continue
+        if side < 0:
+            team_a_units.append(actor)
+        else:
+            team_b_units.append(actor)
+        unit_data[actor.get_instance_id()] = {"health": 100.0, "cooldown": rng.randf_range(0.1, 0.8), "team": side}
+
+func _spawn_character(character_name: String, side: int, index: int, amount: int) -> Node3D:
+    var actor: Node3D
+    var model_path: String = CHARACTER_MODELS.get(character_name, "")
+    if model_path != "" and ResourceLoader.exists(model_path):
+        # Godot imports COLLADA (.dae) as a PackedScene just like GLB.
+        var packed := load(model_path) as PackedScene
+        if packed != null:
+            actor = packed.instantiate() as Node3D
+    if actor == null:
+        push_error("Character model failed to load: " + character_name + " — battle spawn skipped")
+        return null
+    var row := int(index / 5)
+    var col := index % 5
+    var spread := minf(float(amount), 5.0)
+    var x := (float(col) - (spread - 1.0) * 0.5) * 22.0
+    var z := float(side) * (62.0 + float(row) * 18.0)
+    actor.name = "%s_Team_%s_%02d" % [character_name.replace(" ", ""), "Blue" if side < 0 else "Red", index]
+    actor.position = Vector3(x, _height_approx(x, z), z)
+    actor.scale = Vector3.ONE
+    add_child(actor)
+    actor.look_at(Vector3(x, _height_approx(x, -float(side) * 130.0), -float(side) * 130.0), Vector3.UP)
+    _apply_model_facing_correction(actor)
+    _start_imported_animation(actor)
+
+    # Characters with imported animation clips use their authored skeletal motion.
+    return actor
+
+func _create_combat_audio() -> void:
+    punch_player = AudioStreamPlayer.new()
+    punch_player.name = "PunchWhooshAudio"
+    punch_player.volume_db = -7.0
+    punch_player.stream = _make_sfx_stream(145.0, 0.16, 0.72, 0.0)
+    add_child(punch_player)
+    impact_player = AudioStreamPlayer.new()
+    impact_player.name = "ImpactThudAudio"
+    impact_player.volume_db = -5.0
+    impact_player.stream = _make_sfx_stream(72.0, 0.20, 0.88, 0.32)
+    add_child(impact_player)
+
+func _make_sfx_stream(base_frequency: float, duration: float, noise_mix: float, decay_power: float) -> AudioStreamWAV:
+    var sample_rate := 22050
+    var sample_count := int(sample_rate * duration)
+    var bytes := PackedByteArray()
+    bytes.resize(sample_count * 2)
+    for i in range(sample_count):
+        var t := float(i) / float(sample_rate)
+        var envelope := pow(maxf(0.0, 1.0 - t / duration), 1.7 + decay_power * 5.0)
+        var tone := sin(TAU * (base_frequency * t - 22.0 * t * t))
+        var noise := rng.randf_range(-1.0, 1.0)
+        var sample := clampf((tone * (1.0 - noise_mix) + noise * noise_mix) * envelope * 0.72, -1.0, 1.0)
+        bytes.encode_s16(i * 2, int(sample * 32767.0))
+    var stream := AudioStreamWAV.new()
+    stream.format = AudioStreamWAV.FORMAT_16_BITS
+    stream.mix_rate = sample_rate
+    stream.stereo = false
+    stream.data = bytes
+    return stream
+
+func _play_attack_sound() -> void:
+    if punch_player != null:
+        punch_player.play()
+
+func _play_impact_sound() -> void:
+    if impact_player != null:
+        impact_player.play()
+
+func _play_action_animation(actor: Node3D, action: String) -> bool:
+    var players := actor.find_children("*", "AnimationPlayer", true, false)
+    var terms: Array[String] = ["attack", "punch", "strike", "hit", "kick"] if action == "attack" else ["walk", "run"]
+    for player_node in players:
+        var player := player_node as AnimationPlayer
+        if player == null:
+            continue
+        for clip in player.get_animation_list():
+            var lower := clip.to_lower()
+            for term in terms:
+                if lower.contains(term):
+                    # Avoid restarting the same animation every frame.
+                    if player.current_animation != clip or not player.is_playing():
+                        player.play(clip)
+                    return true
+    return false
+
+func _start_imported_animation(actor: Node3D) -> void:
+    var players := actor.find_children("*", "AnimationPlayer", true, false)
+    for player_node in players:
+        var player := player_node as AnimationPlayer
+        if player == null:
+            continue
+        var animation_names := player.get_animation_list()
+        var chosen := ""
+        # Prefer the model's authored clip; skip editor/import reset tracks.
+        for animation_name in animation_names:
+            if animation_name != "RESET" and animation_name != "RESET-RESET":
+                chosen = animation_name
+                break
+        if chosen != "":
+            player.play(chosen)
+            return
+
+func _apply_model_facing_correction(actor: Node3D) -> void:
+    # The supplied Hulk GLB is authored facing the opposite local forward axis.
+    # Godot look_at() points local -Z at the target, so compensate by 180 degrees.
+    if actor.name.begins_with("Hulk_"):
+        actor.rotate_y(PI)
+
+func _animate_rig(actor: Node3D, moving: bool, attacking: bool, phase: float) -> void:
+    # Procedural strike pose is a fallback when no authored attack clip exists.
+    var skeleton_nodes := actor.find_children("*", "Skeleton3D", true, false)
+    for skeleton_node in skeleton_nodes:
+        var skeleton := skeleton_node as Skeleton3D
+        if skeleton == null:
+            continue
+        skeleton.reset_bone_poses()
+        for bone_index in range(skeleton.get_bone_count()):
+            var bone_name := skeleton.get_bone_name(bone_index).to_lower()
+            var side_phase := 0.0
+            if bone_name.contains("left") or bone_name.ends_with("_l") or bone_name.ends_with(".l"):
+                side_phase = PI
+            var angle := 0.0
+            var is_arm := bone_name.contains("arm") or bone_name.contains("shoulder")
+            var is_leg := bone_name.contains("thigh") or bone_name.contains("upleg") or bone_name.contains("leg")
+            if attacking and is_arm and (bone_name.contains("right") or bone_name.ends_with("_r") or bone_name.ends_with(".r")):
+                angle = -1.15
+            elif moving and is_arm:
+                angle = sin(phase + side_phase) * 0.62
+            elif moving and is_leg:
+                angle = sin(phase + side_phase) * 0.78
+            elif not moving and not attacking and (bone_name.contains("spine") or bone_name.contains("chest")):
+                angle = sin(phase * 0.45) * 0.025
+            if absf(angle) > 0.001:
+                skeleton.set_bone_pose_rotation(bone_index, Quaternion(Vector3.RIGHT, angle))
+
 func _apply_visible_counts() -> void:
-    team_a_mesh.multimesh.visible_instance_count = team_a_alive
-    team_b_mesh.multimesh.visible_instance_count = team_b_alive
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
+
+func _update_combat(delta: float) -> void:
+    for is_blue in [true, false]:
+        var allies: Array[Node3D] = team_a_units if is_blue else team_b_units
+        var enemies: Array[Node3D] = team_b_units if is_blue else team_a_units
+        for actor in allies.duplicate():
+            if not is_instance_valid(actor):
+                allies.erase(actor)
+                continue
+            if enemies.is_empty():
+                break
+            var nearest: Node3D = null
+            var nearest_distance := INF
+            for enemy in enemies:
+                if not is_instance_valid(enemy):
+                    continue
+                var distance := Vector2(actor.position.x - enemy.position.x, actor.position.z - enemy.position.z).length()
+                if distance < nearest_distance:
+                    nearest_distance = distance
+                    nearest = enemy
+            if nearest == null:
+                continue
+            var direction := Vector3(nearest.position.x - actor.position.x, 0.0, nearest.position.z - actor.position.z)
+            if nearest_distance > 4.2:
+                actor.position += direction.normalized() * 34.0 * delta
+                actor.position.y = _height_approx(actor.position.x, actor.position.z)
+                actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
+                _apply_model_facing_correction(actor)
+                if not _play_action_animation(actor, "move"):
+                    _animate_rig(actor, true, false, battle_time * 9.0)
+            else:
+                actor.look_at(Vector3(nearest.position.x, actor.position.y, nearest.position.z), Vector3.UP)
+                _apply_model_facing_correction(actor)
+                var actor_id: int = actor.get_instance_id()
+                var data: Dictionary = unit_data.get(actor_id, {})
+                var cooldown := float(data.get("cooldown", 0.0)) - delta
+                var attack_timer := maxf(0.0, float(data.get("attack_timer", 0.0)) - delta)
+                if cooldown <= 0.0:
+                    var enemy_id := nearest.get_instance_id()
+                    var enemy_data: Dictionary = unit_data.get(enemy_id, {})
+                    enemy_data["health"] = float(enemy_data.get("health", 100.0)) - 22.0
+                    unit_data[enemy_id] = enemy_data
+                    attack_timer = 0.38
+                    _play_attack_sound()
+                    _play_action_animation(actor, "attack")
+                    _play_impact_sound()
+                    # A physical step-in makes the strike happen at contact range;
+                    # damage is never applied from across the arena.
+                    actor.position += direction.normalized() * 1.4
+                    cooldown = 0.85
+                    if float(enemy_data["health"]) <= 0.0:
+                        enemies.erase(nearest)
+                        unit_data.erase(enemy_id)
+                        var death_tween := create_tween()
+                        death_tween.tween_property(nearest, "rotation:z", nearest.rotation.z + 1.25, 0.28)
+                        death_tween.parallel().tween_property(nearest, "scale", Vector3(0.01, 0.01, 0.01), 0.30)
+                        death_tween.tween_callback(nearest.queue_free)
+                data["cooldown"] = cooldown
+                data["attack_timer"] = attack_timer
+                unit_data[actor_id] = data
+                if attack_timer > 0.0:
+                    if not _play_action_animation(actor, "attack"):
+                        _animate_rig(actor, false, true, battle_time * 9.0)
+                else:
+                    _animate_rig(actor, false, false, battle_time * 9.0)
+
 
 func _process(delta: float) -> void:
+    _update_flight_camera(delta)
     if not battle_running:
         return
-
-    battle_time += delta * battle_speed
-    var a_power := sqrt(float(team_a_alive)) * 2.0
-    var b_power := sqrt(float(team_b_alive)) * 2.0
-    var damage_to_a := maxf(1.0, b_power * delta * battle_speed * 0.8)
-    var damage_to_b := maxf(1.0, a_power * delta * battle_speed * 0.8)
-
-    team_a_alive = maxi(0, team_a_alive - int(damage_to_a))
-    team_b_alive = maxi(0, team_b_alive - int(damage_to_b))
-    _apply_visible_counts()
-
+    battle_time += delta
+    _update_combat(delta)
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
     ui_refresh_timer += delta
-    if ui_refresh_timer >= 0.15:
+    if ui_refresh_timer >= 0.2:
         ui_refresh_timer = 0.0
         _refresh_ui()
-
-    if team_a_alive == 0 or team_b_alive == 0:
+    if team_a_units.is_empty() or team_b_units.is_empty():
         battle_running = false
-        start_button.text = "BATTLE FINISHED — RESET"
-        status_label.text = _winner_text()
+        start_button.text = "НОВЫЙ БОЙ"
+        _refresh_ui()
 
 func _winner_text() -> String:
     if team_a_alive > team_b_alive:
@@ -268,10 +765,76 @@ func _winner_text() -> String:
 func _refresh_ui() -> void:
     if status_label == null:
         return
-
-    if not battle_running and (team_a_alive == 0 or team_b_alive == 0):
-        status_label.text = _winner_text()
+    team_a_alive = team_a_units.size()
+    team_b_alive = team_b_units.size()
+    if not battle_running and battle_time > 0.0:
+        status_label.text = _winner_text() + "\nBlue: %d  •  Red: %d  •  %.1fs" % [team_a_alive, team_b_alive, battle_time]
     else:
-        status_label.text = "BLUE: %d / %d     RED: %d / %d\nTime: %.1fs" % [
-            team_a_alive, team_a_count, team_b_alive, team_b_count, battle_time
-        ]
+        status_label.text = "BLUE: %d / %d     RED: %d / %d\nLeft joystick: move • Right swipe: look" % [team_a_alive, team_a_count, team_b_alive, team_b_count]
+
+func _update_flight_camera(delta: float) -> void:
+    if battle_camera == null:
+        return
+    var move := Vector3.ZERO
+    if touch_joy_vector.length() > 0.08:
+        # Screen up (negative Y) moves forward along camera -Z; screen down moves backward.
+        move += battle_camera.global_basis.z * touch_joy_vector.y
+        move += battle_camera.global_basis.x * touch_joy_vector.x
+    if Input.is_key_pressed(KEY_W):
+        move -= battle_camera.global_basis.z
+    if Input.is_key_pressed(KEY_S):
+        move += battle_camera.global_basis.z
+    if Input.is_key_pressed(KEY_D):
+        move += battle_camera.global_basis.x
+    if Input.is_key_pressed(KEY_A):
+        move -= battle_camera.global_basis.x
+    if Input.is_key_pressed(KEY_E) or Input.is_key_pressed(KEY_SPACE):
+        move += Vector3.UP
+    if Input.is_key_pressed(KEY_Q) or Input.is_key_pressed(KEY_CTRL):
+        move -= Vector3.UP
+    if move.length_squared() > 0.0:
+        battle_camera.global_position += move.normalized() * camera_flight_speed * delta
+    var pos := battle_camera.global_position
+    var radius := Vector2(pos.x, pos.z).length()
+    if radius > MAP_RADIUS - 3.0:
+        var factor := (MAP_RADIUS - 3.0) / radius
+        pos.x *= factor
+        pos.z *= factor
+    pos.y = clampf(pos.y, _height_approx(pos.x, pos.z) + 2.0, 2600.0)
+    battle_camera.global_position = pos
+
+func _unhandled_input(event: InputEvent) -> void:
+    if event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_RIGHT:
+            camera_drag_active = event.pressed
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
+            battle_camera.fov = maxf(28.0, battle_camera.fov - 3.0)
+        elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+            battle_camera.fov = minf(82.0, battle_camera.fov + 3.0)
+    elif event is InputEventMouseMotion and camera_drag_active:
+        _rotate_flight_camera(event.relative)
+    elif event is InputEventScreenTouch:
+        if event.pressed:
+            if event.position.x < get_viewport().get_visible_rect().size.x * 0.45:
+                touch_joy_id = event.index
+                touch_joy_origin = event.position
+                touch_joy_vector = Vector2.ZERO
+            else:
+                touch_look_id = event.index
+        else:
+            if event.index == touch_joy_id:
+                touch_joy_id = -1
+                touch_joy_vector = Vector2.ZERO
+            if event.index == touch_look_id:
+                touch_look_id = -1
+    elif event is InputEventScreenDrag:
+        if event.index == touch_joy_id:
+            touch_joy_vector = ((event.position - touch_joy_origin) / 92.0).limit_length(1.0)
+        elif event.index == touch_look_id:
+            _rotate_flight_camera(event.relative)
+
+func _rotate_flight_camera(relative: Vector2) -> void:
+    if battle_camera == null:
+        return
+    battle_camera.rotation.y -= relative.x * camera_look_sensitivity
+    battle_camera.rotation.x = clampf(battle_camera.rotation.x - relative.y * camera_look_sensitivity, deg_to_rad(-88.0), deg_to_rad(88.0))

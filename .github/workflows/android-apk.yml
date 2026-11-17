@@ -5,10 +5,12 @@ on:
   push:
     branches:
       - main
+      - visual-upgrade/realistic-battlefield
     paths:
       - "project.godot"
       - "main.tscn"
       - "scripts/**"
+      - "assets/**"
       - "export_presets.cfg"
       - "ci/**"
       - ".github/workflows/android-apk.yml"
@@ -29,6 +31,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Spider-Man model from uploaded asset archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="assets/assets/SpideyMesh.zip"
+          test -s "$ARCHIVE"
+          mkdir -p assets/characters "$RUNNER_TEMP/spidey-model"
+          unzip -oq "$ARCHIVE" -d "$RUNNER_TEMP/spidey-model"
+          test -s "$RUNNER_TEMP/spidey-model/SpideyMesh.dae"
+          test -s "$RUNNER_TEMP/spidey-model/Spidey512.png"
+          # COLLADA bone display names contain ':' in the source file. Godot 4
+          # rejects ':' and '/' in Skeleton3D bone names; the JOINT sid and
+          # skin Name_array already use underscore-safe identifiers.
+          python3 - "$RUNNER_TEMP/spidey-model/SpideyMesh.dae" <<'PY'
+          import re, sys
+          path = sys.argv[1]
+          data = open(path, encoding="utf-8").read()
+          data, count = re.subn(
+              r'(\bname=")([^"]*)(")',
+              lambda m: m.group(1) + re.sub(r"[:/]", "_", m.group(2)) + m.group(3),
+              data,
+          )
+          if count == 0:
+              raise SystemExit("No COLLADA name attributes found to normalize")
+          open(path, "w", encoding="utf-8").write(data)
+          print(f"Normalized {count} COLLADA name attributes for Godot Skeleton3D")
+          PY
+          cp "$RUNNER_TEMP/spidey-model/SpideyMesh.dae" assets/characters/SpideyMesh.dae
+          cp "$RUNNER_TEMP/spidey-model/Spidey512.png" assets/characters/Spidey512.png
+          echo "Installed Spider-Man COLLADA model and texture:"
+          ls -lh assets/characters/SpideyMesh.dae assets/characters/Spidey512.png
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -99,8 +133,15 @@ jobs:
             -alias androiddebugkey -keyalg RSA -keysize 2048 \
             -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Import project resources
-        run: godot --headless --editor --path . --import
+      - name: Import project resources (fail on importer errors)
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --path . --import 2>&1 | tee resource-import.log
+          if grep -E "ERROR:" resource-import.log; then
+            echo "Godot reported resource importer errors; refusing to export APK."
+            exit 1
+          fi
 
       - name: Configure Godot Android export settings
         shell: bash
@@ -121,11 +162,25 @@ jobs:
           EOF
           test -s "$HOME/.config/godot/editor_settings-4.tres"
 
-      - name: Headless editor validation
-        run: godot --headless --editor --path . --quit
+      - name: Headless editor validation (fail on GDScript errors)
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --editor --path . --quit 2>&1 | tee editor-validation.log
+          if grep -E "SCRIPT ERROR:|Failed to load script|Parse Error:" editor-validation.log; then
+            echo "GDScript validation failed; refusing to export APK."
+            exit 1
+          fi
 
-      - name: Headless game startup check
-        run: godot --headless --path . --quit-after 3
+      - name: Headless game startup check (fail on script errors)
+        shell: bash
+        run: |
+          set -euo pipefail
+          godot --headless --path . --quit-after 3 2>&1 | tee game-startup.log
+          if grep -E "SCRIPT ERROR:|Failed to load script|Parse Error:" game-startup.log; then
+            echo "Game startup validation failed; refusing to export APK."
+            exit 1
+          fi
 
       - name: Export Android debug APK
         run: |

@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Пустошь за последней стеной 3D</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#c9d6dc;font-family:system-ui,sans-serif;color:#f2e8d0}
+  canvas{display:block;touch-action:none}
+  body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  #overlay{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(20,15,10,.72);text-align:center;padding:20px;cursor:pointer;z-index:5}
+  #overlay h1{margin:0;font-size:28px}
+  #overlay p{margin:0;max-width:520px;line-height:1.5;font-size:15px;opacity:.92}
+  #go{background:#c9a35a;color:#201608;border:0;padding:12px 26px;border-radius:8px;font-size:17px;font-weight:600}
+  #go[disabled]{opacity:.5}
+  #hud{position:fixed;left:12px;top:10px;font-size:13px;line-height:1.5;text-shadow:0 1px 3px #000;pointer-events:none;z-index:3}
+  #joy{position:fixed;left:0;top:0;width:45%;height:100%;display:none;z-index:4;touch-action:none;background:transparent}
+  #rotate{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;background:#14110d;color:#f2e8d0;font-size:20px;text-align:center;z-index:20;padding:24px}
+  @media (orientation: portrait) and (pointer: coarse){#rotate{display:flex}}
+  @media (max-height:500px){#overlay{gap:8px;padding:10px}#overlay h1{font-size:20px}#overlay p{font-size:12px;line-height:1.35}#go{padding:9px 20px;font-size:15px}}
+</style>
+</head>
+<body>
+<div id="hud"></div>
+<div id="joy"></div>
+<div id="rotate"><div style="font-size:54px">📱 ⟳</div>Поверни телефон горизонтально</div>
+<div id="overlay">
+  <h1>Пустошь за последней стеной</h1>
+  <p id="help">Лети над картой как в свободной камере.<br>
+  <b>W A S D</b> — лететь (туда, куда смотришь) · <b>Мышь</b> — поворот<br>
+  <b>Пробел / E</b> — вверх · <b>C / Q</b> — вниз · <b>Shift</b> — ускорение · <b>R / F</b> — скорость<br>
+  <b>Колесо мыши</b> — приблизить / отдалить · <b>правая кнопка</b> (держать) — быстрый зум<br>
+  <b>Esc</b> — освободить мышь<br>
+  <b>Телефон (горизонтально):</b> левая половина экрана — невидимый джойстик, веди пальцем, куда лететь (вверх и вниз — подними или опусти взгляд). Правой рукой крути камеру, щипок — приближение</p>
+  <button id="go" disabled>Генерация карты…</button>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* =====================================================================
+   3D-карта: пустошь за последней стеной. Без деревьев.
+   Почти ровная земля, камни, сухая трава, руины. Карта — круг радиусом
+   1 км (1000 м), по краю — кольцевая стена.
+   Своя карта: map3d.html?seed=123
+   Для игры: window.GameMap3D.groundY(x, z) — высота земли в точке.
+   ===================================================================== */
+const S = 2400, HALF = S / 2, SEG = 480, STEP = S / SEG, G = SEG + 1;
+const R_MAP = 1000;   // радиус карты: 1 км
+const WALL_H = 260;   // высота кольцевой стены
+const params = new URLSearchParams(location.search);
+const seed = Number(params.get('seed')) || (Date.now() % 1000000);
+const isTouch = 'ontouchstart' in window;
+
+// ---------- генератор и шум ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd = mulberry32(seed);
+const rr = (a, b) => a + rnd() * (b - a);
+const perm = new Uint8Array(512);
+{ const b = Array.from({length: 256}, (_, i) => i);
+  for (let i = 255; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [b[i], b[j]] = [b[j], b[i]]; }
+  for (let i = 0; i < 512; i++) perm[i] = b[i & 255]; }
+const hash = (x, y) => perm[(perm[x & 255] + (y & 255)) & 511] / 255;
+const sm = t => t * t * (3 - 2 * t);
+function noise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), fx = sm(x - xi), fy = sm(y - yi);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+function fbm(x, y, o) { let v = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { v += noise(x * f, y * f) * a; n += a; a *= 0.5; f *= 2; } return v / n; }
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const mix = (a, b, t) => a + (b - a) * t;
+const ox = rr(0, 500), oy = rr(0, 500);
+
+// ---------- сцена ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const FOG = new THREE.Color(0xc9d6dc);
+scene.fog = new THREE.Fog(FOG, 350, 2600);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.5, 6000);
+camera.rotation.order = 'YXZ';
+
+const sunDir = new THREE.Vector3(-0.5, 0.45, 0.75).normalize();
+scene.add(new THREE.HemisphereLight(0xc4d8f0, 0x6f8a4a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff1d6, 2.8);
+sun.castShadow = true;
+const SM = isTouch ? 2048 : 4096;
+sun.shadow.mapSize.set(SM, SM);
+Object.assign(sun.shadow.camera, { left: -400, right: 400, top: 400, bottom: -400, near: 1, far: 2200 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 1.2;
+scene.add(sun, sun.target);
+
+// небо
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(5000, 32, 16),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: { hor: { value: FOG.clone() }, top: { value: new THREE.Color(0x4f8fd8) }, sun: { value: sunDir }, uTime: { value: 0 } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: `
+      uniform vec3 hor; uniform vec3 top; uniform vec3 sun; uniform float uTime; varying vec3 vP;
+      float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), f.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), f.x), f.y); }
+      float fb(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += vn(p) * a; p *= 2.03; a *= 0.5; } return v; }
+      void main(){
+        vec3 d = normalize(vP);
+        float h = clamp(d.y, 0.0, 1.0);
+        vec3 c = mix(hor, top, pow(h, 0.6));
+        float s = max(dot(d, normalize(sun)), 0.0);
+        if (d.y > 0.0) {
+          vec2 cuv = d.xz / (d.y + 0.18) * 0.8 + vec2(uTime * 0.012, uTime * 0.004);
+          float cov = smoothstep(0.5, 0.75, fb(cuv));
+          float edge = smoothstep(0.0, 0.2, d.y);
+          vec3 cc = mix(vec3(0.55, 0.54, 0.55), vec3(1.0, 0.96, 0.9), clamp(0.55 + 0.6 * s, 0.0, 1.0));
+          c = mix(c, cc, cov * edge * 0.85);
+        }
+        c += vec3(1.0,0.8,0.5) * pow(s, 16.0) * 0.35 + vec3(1.0,0.9,0.7) * pow(s, 300.0) * 3.0;
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`
+  })
+);
+scene.add(sky);
+
+// ---------- текстуры ----------
+function canvasTex(c, repeat) {
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  if (repeat) t.repeat.set(repeat[0], repeat[1]);
+  return t;
+}
+function detailCanvas() {
+  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#e6e6e6'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 9000; i++) {
+    const v = 140 + rnd() * 115 | 0, s = rr(1, 4);
+    g.fillStyle = `rgba(${v},${v},${v},${rr(0.25, 0.8)})`;
+    g.fillRect(rnd() * 512, rnd() * 512, s, s * rr(0.5, 1.2));
+  }
+  for (let i = 0; i < 60; i++) { // трещины сухой земли
+    g.strokeStyle = 'rgba(90,90,90,0.35)'; g.lineWidth = rr(0.6, 1.4);
+    let x = rnd() * 512, y = rnd() * 512; g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) { x += rr(-14, 14); y += rr(-14, 14); g.lineTo(x, y); }
+    g.stroke();
+  }
+  return c;
+}
+function stoneCanvas(bricks) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8d877b'; g.fillRect(0, 0, 256, 256);
+  if (bricks) {
+    for (let row = 0; row < 4; row++) {
+      for (let col = -1; col < 3; col++) {
+        const x = col * 128 + (row % 2) * 64, v = 120 + rnd() * 40 | 0;
+        g.fillStyle = `rgb(${v},${v - 5},${v - 14})`; g.fillRect(x + 2, row * 64 + 2, 124, 60);
+      }
+    }
+    g.strokeStyle = 'rgba(30,24,16,0.7)'; g.lineWidth = 3;
+    for (let row = 0; row <= 4; row++) { g.beginPath(); g.moveTo(0, row * 64); g.lineTo(256, row * 64); g.stroke(); }
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 3; col++) {
+      const x = col * 128 + (row % 2) * 64; g.beginPath(); g.moveTo(x, row * 64); g.lineTo(x, row * 64 + 64); g.stroke();
+    }
+  }
+  for (let i = 0; i < 3500; i++) {
+    const v = rnd() < 0.5 ? 0 : 255;
+    g.fillStyle = `rgba(${v},${v},${v},${rr(0.04, 0.14)})`;
+    g.fillRect(rnd() * 256, rnd() * 256, rr(1, 4), rr(1, 4));
+  }
+  for (let i = 0; i < 10; i++) {
+    g.strokeStyle = 'rgba(20,15,10,0.35)'; g.lineWidth = 1.2;
+    let x = rnd() * 256, y = rnd() * 256; g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) { x += rr(-12, 12); y += rr(-12, 12); g.lineTo(x, y); }
+    g.stroke();
+  }
+  return c;
+}
+
+// ---------- рельеф ----------
+const H = new Float32Array(G * G);     // высота
+const CARVE = new Float32Array(G * G); // овраги
+const GM = new Float32Array(G * G);    // густота травы
+const COL = new Float32Array(G * G * 3);
+
+function groundY(x, z) {
+  let fx = clamp((x + HALF) / STEP, 0, SEG - 0.001), fz = clamp((z + HALF) / STEP, 0, SEG - 0.001);
+  const i = fx | 0, j = fz | 0, tx = fx - i, tz = fz - j;
+  const a = H[j * G + i], b = H[j * G + i + 1], c = H[(j + 1) * G + i], d = H[(j + 1) * G + i + 1];
+  return a + (b - a) * tx + (c - a) * tz + (a - b - c + d) * tx * tz;
+}
+function slopeAt(x, z) {
+  const e = 6;
+  const dx = (groundY(x + e, z) - groundY(x - e, z)) / (2 * e), dz = (groundY(x, z + e) - groundY(x, z - e)) / (2 * e);
+  return Math.hypot(dx, dz);
+}
+
+function buildTerrain() {
+  for (let j = 0; j < G; j++) {
+    for (let i = 0; i < G; i++) {
+      const x = -HALF + i * STEP, z = -HALF + j * STEP;
+      const u = (x / S + 0.5) * 1024 + ox, v = (z / S + 0.5) * 1024 + oy;
+      const hills = fbm(u * 0.0035, v * 0.0035, 3);
+      const micro = fbm(x * 0.04 + 77, z * 0.04 + 77, 2);
+      const k = j * G + i;
+      H[k] = (hills - 0.5) * 8 + (micro - 0.5) * 0.5;   // почти ровная земля (перепад около 2 м)
+      CARVE[k] = 0;
+    }
+  }
+  const dirt = [100, 82, 58], dark = [66, 55, 40], grass = [84, 132, 46], dust = [150, 146, 104], rock = [112, 102, 90], gravel = [140, 128, 110];
+  const col = new THREE.Color();
+  for (let j = 0; j < G; j++) {
+    for (let i = 0; i < G; i++) {
+      const k = j * G + i, x = -HALF + i * STEP, z = -HALF + j * STEP;
+      const u = (x / S + 0.5) * 1024 + ox, v = (z / S + 0.5) * 1024 + oy;
+      const il = Math.max(0, i - 1), ir = Math.min(G - 1, i + 1), jl = Math.max(0, j - 1), jr = Math.min(G - 1, j + 1);
+      const sx = (H[j * G + ir] - H[j * G + il]) / ((ir - il) * STEP), sz = (H[jr * G + i] - H[jl * G + i]) / ((jr - jl) * STEP);
+      const slope = Math.hypot(sx, sz);
+      const moist = fbm(u * 0.008 + 200, v * 0.008 + 200, 4);
+      const gm = smoothstep(0.30, 0.50, moist) * (1 - CARVE[k] * 0.8) * (1 - smoothstep(0.35, 0.7, slope));
+      GM[k] = gm;
+      const patch = smoothstep(0.55, 0.7, fbm(u * 0.012 + 400, v * 0.012, 3));
+      const grain = fbm(x * 0.05, z * 0.05, 2);
+      const hn = clamp((H[k] + 3) / 6, 0, 1) * 0.12;
+      const rockMix = smoothstep(0.35, 0.95, slope);
+      const gravelMix = smoothstep(0.58, 0.72, fbm(u * 0.02 + 600, v * 0.02 + 600, 3)) * 0.4 * (1 - gm * 0.7);
+      const c = [0, 0, 0];
+      for (let q = 0; q < 3; q++) {
+        let val = mix(dirt[q], grass[q], gm);
+        val = mix(val, dark[q], patch * 0.5);
+        val = mix(val, dust[q], hn);
+        val = mix(val, gravel[q], gravelMix);
+        val = mix(val, dark[q] * 0.8, CARVE[k] * 0.5);
+        val = mix(val, rock[q], rockMix);
+        c[q] = val * (0.9 + grain * 0.25) * 1.12;
+      }
+      col.setRGB(clamp(c[0] / 255, 0, 1), clamp(c[1] / 255, 0, 1), clamp(c[2] / 255, 0, 1), THREE.SRGBColorSpace);
+      COL[k * 3] = col.r; COL[k * 3 + 1] = col.g; COL[k * 3 + 2] = col.b;
+    }
+  }
+  const geo = new THREE.PlaneGeometry(S, S, SEG, SEG);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  for (let k = 0; k < G * G; k++) pos.setY(k, H[k]);
+  geo.setAttribute('color', new THREE.BufferAttribute(COL, 3));
+  geo.computeVertexNormals();
+  const dtex = canvasTex(detailCanvas(), [450, 450]);
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, map: dtex, bumpMap: dtex, bumpScale: 1.5, roughness: 1, metalness: 0 });
+  mat.onBeforeCompile = sh => {            // второй слой текстуры другого масштаба убирает повторение узора
+    sh.fragmentShader = sh.fragmentShader.replace('#include <map_fragment>',
+      `#ifdef USE_MAP
+        vec4 sampledDiffuseColor = texture2D( map, vMapUv );
+        vec4 sampledDiffuseColor2 = texture2D( map, vMapUv * 0.173 + vec2( 0.37, 0.71 ) );
+        sampledDiffuseColor.rgb *= mix( vec3( 1.0 ), sampledDiffuseColor2.rgb, 0.75 ) * 1.08;
+        diffuseColor *= sampledDiffuseColor;
+      #endif`);
+  };
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+}
+
+// ---------- мягкие тени под камнями и блоками ----------
+function blobTex() {
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 6, 64, 64, 62);
+  gr.addColorStop(0, 'rgba(0,0,0,0.5)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.22)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+function addDecals(items) {
+  const geo = new THREE.PlaneGeometry(1, 1); geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ map: blobTex(), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const m = new THREE.InstancedMesh(geo, mat, items.length), d = new THREE.Object3D();
+  items.forEach((it, i) => {
+    d.position.set(it.x, groundY(it.x, it.z) + 0.06, it.z);
+    d.rotation.set(0, rr(0, 6), 0); d.scale.set(it.r, 1, it.r * rr(0.8, 1)); d.updateMatrix(); m.setMatrixAt(i, d.matrix);
+  });
+  m.renderOrder = 1; m.frustumCulled = false; scene.add(m);
+}
+
+// ---------- камни ----------
+function buildRocks() {
+  const geo = new THREE.IcosahedronGeometry(1, isTouch ? 2 : 3);
+  const p = geo.attributes.position, v = new THREE.Vector3();
+  const shade = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const n1 = Math.sin(v.x * 3.1 + v.y * 1.7) * Math.cos(v.z * 2.9 - v.x * 1.1);
+    const n2 = Math.sin(v.y * 6.3 + v.z * 5.1) * Math.cos(v.x * 5.7 + v.z * 2.3);
+    const n3 = Math.sin(v.x * 13 + v.z * 11) * Math.sin(v.y * 12 - v.x * 9);
+    v.multiplyScalar(1 + 0.22 * n1 + 0.12 * n2 + 0.05 * n3);
+    if (v.y < -0.45) v.y = -0.45 + (v.y + 0.45) * 0.3;     // плоское основание
+    p.setXYZ(i, v.x, v.y, v.z);
+    const ao = (0.5 + 0.5 * smoothstep(-0.5, 0.6, v.y)) * (0.93 + 0.07 * n2);   // темнее у земли
+    const moss = smoothstep(0.1, 0.7, v.y) * (0.5 + 0.5 * n1) * 0.5;   // мох сверху камней
+    shade[i * 3] = ao * (1 - 0.45 * moss); shade[i * 3 + 1] = ao * (1 + 0.05 * moss); shade[i * 3 + 2] = ao * (1 - 0.55 * moss);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(shade, 3));
+  geo.computeVertexNormals();
+  const tex = canvasTex(stoneCanvas(false), [1, 1]);
+  const mat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 1, vertexColors: true, flatShading: true, roughness: 1 });
+  const list = [];
+  for (let t = 0; t < 14000 && list.length < 2200; t++) {
+    const x = rr(-980, 980), z = rr(-980, 980);
+    if (Math.hypot(x, z) > 975) continue;
+    const cl = fbm(((x / S + 0.5) * 1024 + ox) * 0.012 + 900, ((z / S + 0.5) * 1024 + oy) * 0.012 + 900, 3);
+    if (cl < 0.5 && rnd() > 0.1) continue;
+    const big = rnd() < 0.05;
+    list.push({ x, z, s: big ? rr(3.5, 7) : rr(1.2, 4.5) });
+  }
+  for (let i = list.length - 1; i >= 0; i--) if (rnd() < 0.62) list.splice(i, 1);   // осталось 38% камней
+  const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+  const d = new THREE.Object3D(), c = new THREE.Color();
+  list.forEach((r, i) => {
+    d.position.set(r.x, groundY(r.x, r.z) + r.s * 0.15, r.z);
+    d.rotation.set(rr(0, 3), rr(0, 6), rr(0, 3));
+    d.scale.set(r.s * rr(0.8, 1.3), r.s * rr(0.55, 0.95), r.s * rr(0.8, 1.3));
+    d.updateMatrix(); mesh.setMatrixAt(i, d.matrix);
+    const g = rr(0.7, 1.15); c.setRGB(g, g * 0.97, g * 0.9); mesh.setColorAt(i, c);
+  });
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  scene.add(mesh);
+  addDecals(list.map(r => ({ x: r.x, z: r.z, r: r.s * 2.6 })));
+}
+
+// ---------- руины ----------
+function buildRuins() {
+  const blocks = [];
+  for (let cI = 0; cI < 22; cI++) {
+    const cx = rr(-900, 900), cz = rr(-900, 900);
+    if (Math.hypot(cx, cz) > 880) { cI--; continue; }
+    const segs = rr(3, 7) | 0;
+    for (let s = 0; s < segs; s++) {
+      const sx = cx + rr(-60, 60), sz = cz + rr(-60, 60), ang = rr(0, Math.PI), len = rr(20, 70);
+      const steps = Math.max(2, len / 4.5 | 0);
+      let hBase = rr(2.5, 9);
+      for (let k = 0; k < steps; k++) {
+        if (rnd() < 0.18) continue;
+        const dd = (k - steps / 2) * 4.5;
+        const x = sx + Math.cos(ang) * dd, z = sz + Math.sin(ang) * dd;
+        hBase = clamp(hBase + rr(-2, 2), 1.5, 10);
+        blocks.push({ x, z, w: 4.6, h: hBase, d: rr(3.2, 4.2), yaw: -ang + rr(-0.06, 0.06), tilt: rr(-0.06, 0.06), g: rr(0.75, 1.1) });
+      }
+    }
+    for (let k = 0; k < 10; k++) { // обломки
+      const x = cx + rr(-70, 70), z = cz + rr(-70, 70), sz2 = rr(1, 2.8);
+      blocks.push({ x, z, w: sz2 * rr(1, 1.6), h: sz2, d: sz2 * rr(1, 1.5), yaw: rr(0, 6), tilt: rr(-0.5, 0.5), g: rr(0.7, 1.05) });
+    }
+  }
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ map: canvasTex(stoneCanvas(false), [1, 1]), roughness: 1 }), blocks.length);
+  const d = new THREE.Object3D(), c = new THREE.Color();
+  blocks.forEach((b, i) => {
+    d.position.set(b.x, groundY(b.x, b.z) + b.h / 2 - 0.6, b.z);
+    d.rotation.set(b.tilt, b.yaw, b.tilt * 0.5);
+    d.scale.set(b.w, b.h, b.d); d.updateMatrix(); mesh.setMatrixAt(i, d.matrix);
+    c.setRGB(b.g, b.g * 0.97, b.g * 0.9); mesh.setColorAt(i, c);
+  });
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  scene.add(mesh);
+  addDecals(blocks.map(b => ({ x: b.x, z: b.z, r: Math.max(b.w, b.d) * 1.8 + 1 })));
+}
+
+// ---------- сухая трава ----------
+const grassTime = { value: 0 };
+function buildGrass() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 128;
+  const g = cv.getContext('2d');
+  for (let i = 0; i < 30; i++) {
+    const x = 64 + rr(-24, 24), h = rr(55, 125), lean = rr(-26, 26);
+    const hue = rnd() < 0.12 ? rr(44, 58) : rr(78, 120);   // немного выгоревших золотистых стебельков
+    const gr = g.createLinearGradient(0, 128, 0, 128 - h);   // у корня темнее, к кончику светлее
+    gr.addColorStop(0, `hsl(${hue},45%,16%)`);
+    gr.addColorStop(0.45, `hsl(${hue},${rr(45, 70)}%,${rr(26, 38)}%)`);
+    gr.addColorStop(1, `hsl(${hue},${rr(50, 72)}%,${rr(42, 58)}%)`);
+    g.strokeStyle = gr; g.lineWidth = rr(1.5, 3);
+    g.beginPath(); g.moveTo(x, 128); g.quadraticCurveTo(x + lean * 0.3, 128 - h * 0.5, x + lean, 128 - h); g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.35, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 1 });
+  mat.onBeforeCompile = sh => {            // лёгкое покачивание на ветру
+    sh.uniforms.uTime = grassTime;
+    sh.vertexShader = 'uniform float uTime;\n' + sh.vertexShader.replace('#include <begin_vertex>',
+      `#include <begin_vertex>
+       float ph = instanceMatrix[3].x * 0.043 + instanceMatrix[3].z * 0.057;
+       float gust = 0.55 + 0.45 * sin(uTime * 0.7 + instanceMatrix[3].x * 0.012 + instanceMatrix[3].z * 0.009);
+       transformed.x += (sin(uTime * 1.6 + ph) * 0.1 + gust * 0.12) * position.y;
+       transformed.z += cos(uTime * 1.3 + ph * 1.3) * 0.07 * position.y * gust;`);
+  };
+  const geo = new THREE.PlaneGeometry(1, 1); geo.translate(0, 0.5, 0);
+  const list = [];
+  const GRASS_MAX = isTouch ? 80000 : 260000;
+  for (let t = 0; t < 1200000 && list.length < GRASS_MAX; t++) {
+    const x = rr(-1000, 1000), z = rr(-1000, 1000);
+    if (Math.hypot(x, z) > 1000) continue;
+    const k = clamp(((z + HALF) / STEP) | 0, 0, SEG) * G + clamp(((x + HALF) / STEP) | 0, 0, SEG);
+    if (CARVE[k] > 0.6) continue;
+    if (rnd() < GM[k] * 0.9 + 0.02) list.push({ x, z, w: rr(1.0, 2.1), h: rr(0.6, 1.4), yaw: rr(0, 6) });
+  }
+  const c = new THREE.Color(), d = new THREE.Object3D();
+  for (let side = 0; side < 2; side++) {
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((o, i) => {
+      d.position.set(o.x, groundY(o.x, o.z) - 0.05, o.z);
+      d.rotation.set(0, o.yaw + side * Math.PI / 2, 0);
+      d.scale.set(o.w, o.h, o.w); d.updateMatrix(); mesh.setMatrixAt(i, d.matrix);
+      const g2 = 0.75 + ((o.x * 13.7 + o.z * 7.1) % 1 + 1) % 1 * 0.4; c.setRGB(g2 * 0.95, g2, g2 * 0.85); mesh.setColorAt(i, c);
+    });
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+  }
+}
+
+// ---------- весенние цветы ----------
+function buildFlowers() {
+  ['#ffffff', '#ffd93a', '#b58bff'].forEach((col, ci) => {
+    const cv = document.createElement('canvas'); cv.width = 64; cv.height = 96;
+    const g = cv.getContext('2d');
+    g.strokeStyle = '#4f8a2e'; g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(32, 96); g.quadraticCurveTo(30, 60, 32, 26); g.stroke();
+    g.fillStyle = col;
+    for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; g.beginPath(); g.ellipse(32 + Math.cos(a) * 8, 22 + Math.sin(a) * 8, 6, 6, 0, 0, 7); g.fill(); }
+    g.fillStyle = ci === 0 ? '#f3c623' : '#fff3a0'; g.beginPath(); g.arc(32, 22, 5, 0, 7); g.fill();
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.4, side: THREE.DoubleSide, roughness: 1 });
+    const geo = new THREE.PlaneGeometry(0.7, 1.2); geo.translate(0, 0.6, 0);
+    const n = isTouch ? 3500 : 10000, list = [];
+    for (let t = 0; t < 200000 && list.length < n; t++) {
+      const x = rr(-1000, 1000), z = rr(-1000, 1000);
+      if (Math.hypot(x, z) > 1000) continue;
+      const k = clamp(((z + HALF) / STEP) | 0, 0, SEG) * G + clamp(((x + HALF) / STEP) | 0, 0, SEG);
+      const cl = fbm(x * 0.012 + ci * 40, z * 0.012 + ci * 40, 2);   // цветы растут полянами
+      if (GM[k] > 0.5 && cl > 0.56 && rnd() < 0.5) list.push({ x, z, s: rr(0.7, 1.3), yaw: rr(0, 6) });
+    }
+    const mesh = new THREE.InstancedMesh(geo, mat, list.length), d = new THREE.Object3D();
+    list.forEach((o, i) => {
+      d.position.set(o.x, groundY(o.x, o.z) - 0.03, o.z); d.rotation.set(0, o.yaw, 0); d.scale.set(o.s, o.s, o.s);
+      d.updateMatrix(); mesh.setMatrixAt(i, d.matrix);
+    });
+    mesh.frustumCulled = false; scene.add(mesh);
+  });
+}
+
+// ---------- стена ----------
+function buildWall() {
+  const tex = canvasTex(stoneCanvas(true), [105, 4]);
+  const mat = new THREE.MeshStandardMaterial({ map: tex, bumpMap: tex, bumpScale: 2, roughness: 1, side: THREE.DoubleSide });
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(R_MAP, R_MAP, WALL_H, 160, 1, true), mat);
+  ring.position.y = WALL_H / 2 - 40;
+  ring.castShadow = ring.receiveShadow = true;
+  scene.add(ring);
+  const mat2 = new THREE.MeshStandardMaterial({ map: canvasTex(stoneCanvas(true), [1, 4]), roughness: 1 });
+  const geo = new THREE.BoxGeometry(50, WALL_H + 10, 44);
+  for (let n = 0; n < 36; n++) { // опоры по кругу
+    const a = n / 36 * Math.PI * 2, b = new THREE.Mesh(geo, mat2);
+    b.position.set(Math.cos(a) * (R_MAP - 24), WALL_H / 2 - 36, Math.sin(a) * (R_MAP - 24));
+    b.rotation.y = -a; b.castShadow = b.receiveShadow = true; scene.add(b);
+  }
+}
+
+// ---------- пылинки и пыльца в воздухе ----------
+const MOTE_N = 450;
+const motes = { wx: new Float32Array(MOTE_N), wz: new Float32Array(MOTE_N), hgt: new Float32Array(MOTE_N), init: false, mesh: null };
+function buildMotes() {
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d'), gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  gr.addColorStop(0, 'rgba(255,255,240,1)'); gr.addColorStop(1, 'rgba(255,255,240,0)');
+  g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MOTE_N * 3), 3));
+  for (let i = 0; i < MOTE_N; i++) motes.hgt[i] = rr(0.4, 9);
+  motes.mesh = new THREE.Points(geo, new THREE.PointsMaterial({ map: new THREE.CanvasTexture(c), size: 0.22, transparent: true, opacity: 0.7, depthWrite: false, sizeAttenuation: true }));
+  motes.mesh.frustumCulled = false; scene.add(motes.mesh);
+}
+function updateMotes(dt, t, p) {
+  if (!motes.mesh) return;
+  if (!motes.init) { for (let i = 0; i < MOTE_N; i++) { motes.wx[i] = p.x + rr(-35, 35); motes.wz[i] = p.z + rr(-35, 35); } motes.init = true; }
+  const a = motes.mesh.geometry.attributes.position;
+  for (let i = 0; i < MOTE_N; i++) {
+    motes.wx[i] += (0.6 + Math.sin(t * 0.5 + i)) * dt * 0.8;
+    motes.wz[i] += Math.cos(t * 0.4 + i * 1.7) * dt * 0.5;
+    const dx = motes.wx[i] - p.x, dz = motes.wz[i] - p.z;
+    if (dx > 35) motes.wx[i] -= 70; else if (dx < -35) motes.wx[i] += 70;
+    if (dz > 35) motes.wz[i] -= 70; else if (dz < -35) motes.wz[i] += 70;
+    a.setXYZ(i, motes.wx[i], groundY(motes.wx[i], motes.wz[i]) + motes.hgt[i] + Math.sin(t * 0.6 + i * 2.3) * 0.3, motes.wz[i]);
+  }
+  a.needsUpdate = true;
+}
+
+// ---------- сборка ----------
+const goBtn = document.getElementById('go'), overlay = document.getElementById('overlay'), hud = document.getElementById('hud');
+setTimeout(() => {
+  buildTerrain(); buildRocks(); buildRuins(); buildGrass(); buildFlowers(); buildWall(); buildMotes();
+  window.GameMap3D = { size: S, radius: R_MAP, seed, groundY, camera, scene, THREE };
+  goBtn.disabled = false; goBtn.textContent = isTouch ? 'Начать полёт' : 'Нажми, чтобы лететь';
+  document.getElementById('hud').textContent = '';
+}, 50);
+
+// ---------- управление полётом ----------
+const keys = { fwd: 0, back: 0, left: 0, right: 0, up: 0, down: 0, boost: 0 };
+const map = { KeyW: 'fwd', ArrowUp: 'fwd', KeyS: 'back', ArrowDown: 'back', KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
+  Space: 'up', KeyE: 'up', KeyC: 'down', KeyQ: 'down', ControlLeft: 'down', ShiftLeft: 'boost', ShiftRight: 'boost' };
+addEventListener('keydown', e => {
+  if (e.code === 'KeyR' && !e.repeat) speedMul = clamp(speedMul * 1.25, 0.2, 8);
+  if (e.code === 'KeyF' && !e.repeat) speedMul = clamp(speedMul / 1.25, 0.2, 8);
+  if (map[e.code]) { keys[map[e.code]] = 1; e.preventDefault(); }
+});
+addEventListener('keyup', e => { if (map[e.code]) keys[map[e.code]] = 0; });
+let yaw = 0, pitch = -0.12, active = false, speedMul = 1, fovTarget = 70, rmb = false;
+camera.position.set(0, groundY(0, 700) + 25, 700);
+
+async function goLandscape() {          // полный экран + блокировка горизонтальной ориентации (где поддерживается)
+  try {
+    if (document.documentElement.requestFullscreen && !document.fullscreenElement) await document.documentElement.requestFullscreen();
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+  } catch (err) { /* iPhone и часть браузеров не умеют — тогда просто покажем подсказку повернуть телефон */ }
+}
+function start() {
+  if (goBtn.disabled) return;
+  if (isTouch) { active = true; overlay.style.display = 'none'; joy.style.display = 'block'; goLandscape(); }
+  else renderer.domElement.requestPointerLock();
+}
+overlay.addEventListener('click', start);
+document.addEventListener('pointerlockchange', () => {
+  active = document.pointerLockElement === renderer.domElement;
+  overlay.style.display = active ? 'none' : 'flex';
+});
+document.addEventListener('mousemove', e => {
+  if (!active || !document.pointerLockElement) return;
+  const k = camera.fov / 70; // при зуме мышь медленнее
+  yaw -= e.movementX * 0.0022 * k; pitch = clamp(pitch - e.movementY * 0.0022 * k, -1.55, 1.55);
+});
+addEventListener('wheel', e => { fovTarget = clamp(fovTarget * (e.deltaY < 0 ? 0.88 : 1 / 0.88), 8, 90); e.preventDefault(); }, { passive: false });
+addEventListener('mousedown', e => { if (e.button === 2) rmb = true; if (e.button === 1) { fovTarget = 70; e.preventDefault(); } });
+addEventListener('mouseup', e => { if (e.button === 2) rmb = false; });
+addEventListener('contextmenu', e => e.preventDefault());
+
+// тач: свайп — поворот, кнопки — движение
+let lookId = null, lookX = 0, lookY = 0, pinch = 0;
+const cvs = renderer.domElement;
+const pdist = ts => Math.hypot(ts[0].clientX - ts[1].clientX, ts[0].clientY - ts[1].clientY);
+cvs.addEventListener('touchstart', e => {
+  for (const t of e.changedTouches) if (lookId === null) { lookId = t.identifier; lookX = t.clientX; lookY = t.clientY; }
+  if (e.targetTouches.length >= 2) pinch = pdist(e.targetTouches);
+}, { passive: true });
+cvs.addEventListener('touchmove', e => {
+  if (!active) return;
+  const pinching = e.targetTouches.length >= 2;              // два пальца на экране — приближение
+  if (pinching) { const d = pdist(e.targetTouches); if (pinch) fovTarget = clamp(fovTarget * pinch / d, 8, 90); pinch = d; }
+  for (const t of e.changedTouches) {
+    if (t.identifier !== lookId) continue;                    // палец на кнопках не крутит камеру
+    if (!pinching) {
+      const k = camera.fov / 70;
+      yaw -= (t.clientX - lookX) * 0.005 * k; pitch = clamp(pitch - (t.clientY - lookY) * 0.005 * k, -1.55, 1.55);
+    }
+    lookX = t.clientX; lookY = t.clientY;
+  }
+}, { passive: true });
+const endLook = e => {
+  for (const t of e.changedTouches) if (t.identifier === lookId) lookId = null;
+  if (e.targetTouches.length < 2) pinch = 0;
+};
+cvs.addEventListener('touchend', endLook, { passive: true });
+cvs.addEventListener('touchcancel', endLook, { passive: true });
+// невидимый джойстик 360°: левая часть экрана, центр — там, где коснулся пальцем; дальше от центра — быстрее
+const joy = document.getElementById('joy');
+let joyId = null, joyX = 0, joyY = 0, joyOX = 0, joyOY = 0;
+const JOY_R = 70;
+function joySet(t) {
+  let dx = t.clientX - joyOX, dy = t.clientY - joyOY;
+  const len = Math.hypot(dx, dy);
+  if (len > JOY_R) { joyOX += dx / len * (len - JOY_R); joyOY += dy / len * (len - JOY_R); dx = t.clientX - joyOX; dy = t.clientY - joyOY; } // центр тянется за пальцем
+  joyX = dx / JOY_R; joyY = dy / JOY_R;
+  if (Math.hypot(joyX, joyY) < 0.12) { joyX = 0; joyY = 0; }
+}
+function joyReset() { joyId = null; joyX = 0; joyY = 0; }
+joy.addEventListener('touchstart', e => {
+  e.preventDefault();
+  if (joyId === null) { const t = e.changedTouches[0]; joyId = t.identifier; joyOX = t.clientX; joyOY = t.clientY; joySet(t); }
+}, { passive: false });
+joy.addEventListener('touchmove', e => { e.preventDefault(); for (const t of e.changedTouches) if (t.identifier === joyId) joySet(t); }, { passive: false });
+const joyEnd = e => { for (const t of e.changedTouches) if (t.identifier === joyId) joyReset(); };
+joy.addEventListener('touchend', joyEnd); joy.addEventListener('touchcancel', joyEnd);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight);
+});
+
+const vel = new THREE.Vector3(), wish = new THREE.Vector3(), dir = new THREE.Vector3(), right = new THREE.Vector3();
+const clock = new THREE.Clock();
+let hudT = 0;
+function frame() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  camera.rotation.set(pitch, yaw, 0);
+  const want = rmb ? Math.min(fovTarget, 22) : fovTarget;
+  if (Math.abs(camera.fov - want) > 0.05) { camera.fov += (want - camera.fov) * (1 - Math.exp(-14 * dt)); camera.updateProjectionMatrix(); }
+  if (active) {
+    camera.getWorldDirection(dir);
+    right.crossVectors(dir, camera.up).normalize();
+    wish.set(0, 0, 0);
+    if (keys.fwd) wish.add(dir); if (keys.back) wish.sub(dir);
+    if (keys.right) wish.add(right); if (keys.left) wish.sub(right);
+    if (keys.up) wish.y += 1; if (keys.down) wish.y -= 1;
+    if (joyX || joyY) { wish.addScaledVector(dir, -joyY); wish.addScaledVector(right, joyX); }
+    if (wish.lengthSq() > 1) wish.normalize();
+    wish.multiplyScalar(70 * speedMul * (keys.boost ? 4 : 1));
+    vel.lerp(wish, 1 - Math.exp(-4 * dt));
+    camera.position.addScaledVector(vel, dt);
+  }
+  const p = camera.position;
+  const rad = Math.hypot(p.x, p.z);
+  if (rad > R_MAP - 25) { p.x *= (R_MAP - 25) / rad; p.z *= (R_MAP - 25) / rad; }
+  p.y = Math.min(p.y, WALL_H - 60);
+  const gy = groundY(p.x, p.z) + 1.8;
+  if (p.y < gy) { p.y = gy; if (vel.y < 0) vel.y = 0; }
+
+  sky.position.copy(p);
+  sky.material.uniforms.uTime.value = grassTime.value = clock.elapsedTime;
+  updateMotes(dt, clock.elapsedTime, p);
+  const tx = Math.round(p.x / 8) * 8, tz = Math.round(p.z / 8) * 8;
+  sun.target.position.set(tx, groundY(tx, tz), tz);
+  sun.position.copy(sun.target.position).addScaledVector(sunDir, 900);
+
+  hudT += dt;
+  if (hudT > 0.15 && active) {
+    hudT = 0;
+    hud.innerHTML = `Высота над землёй: ${(p.y - gy + 1.8).toFixed(1)} м<br>Скорость: ${vel.length().toFixed(0)} м/с (×${speedMul.toFixed(1)})<br>Приближение: ×${(70 / camera.fov).toFixed(1)}<br>Карта #${seed}`;
+  }
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
